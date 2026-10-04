@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ reino.nombre }} — best auction house deals, EU{% endblock %}
+{% block descripcion %}What is going cheap on {{ reino.nombre }} right now,
+compared with the rest of the EU realms. Updated hourly.{% endblock %}
+
+{% block contenido %}
+<main class="ficha">
+  <h1>{{ reino.nombre }}</h1>
+  <p class="et">Going for less here than they normally do</p>
+  {% if productos %}
+  <div class="tabla">
+  <table>
+    <thead>
+      <tr><th class="txt">Item</th><th class="opcional">Normally</th><th>Here</th></tr>
+    </thead>
+    <tbody>
+      {% for p in productos %}
+      <tr>
+        <td class="txt">
+          {% set producto_id, nombre, icono, variante, reino, calidad = p.producto_id, p.nombre, p.icono, p.variante, None, p.calidad %}
+          {% include "_objeto.html" with context %}
+        </td>
+        <td class="opcional">{{ p.mediana | oro }}g</td>
+        <td>{{ p.minimo | oro }}g</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <!-- Estado vacío: sin esto la tabla salía con cabeceras y cero filas bajo
+       un titular que promete rebajas, y esta página va en el sitemap, así
+       que Google indexaba lo que parece un error. -->
+  <p class="vacio">
+    Nothing is currently going cheap on this realm. Check back after the
+    next hourly update.
+  </p>
+  {% endif %}
+</main>
+{% endblock %}

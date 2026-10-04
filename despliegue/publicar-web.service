@@ -1,0 +1,32 @@
+[Unit]
+Description=Auction Sentinel - pasada horaria que llena la base de la web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sentinel
+Group=sentinel
+WorkingDirectory=/opt/auction-sentinel
+EnvironmentFile=/opt/auction-sentinel/.env
+
+# Sin --db a proposito: la ruta sale de AUCTION_DB, en el EnvironmentFile de
+# arriba, que es el MISMO sitio del que la lee el servidor web. Antes esto
+# llevaba un --db absoluto y el servidor resolvia una ruta relativa contra su
+# WorkingDirectory: dos maneras de nombrar el mismo fichero, y basta con que
+# una de las dos cambie para que el servidor sirva una base vacia sin que
+# nada lo diga.
+ExecStart=/opt/auction-sentinel/.venv/bin/python publicar_web.py
+
+# La primera pasada de la region entera tarda minutos (ver despliegue/README.md);
+# las siguientes son de segundos porque los nombres ya estan guardados. Un
+# margen amplio no cuesta nada aqui -- el timeout por defecto de systemd
+# (90 s) si mataria una pasada normal el dia que Blizzard este lento o
+# aparezcan productos nuevos de golpe (un parche, por ejemplo).
+TimeoutStartSec=3600
+
+# Salida 2 (demasiados reinos han fallado) es una salida limpia con la que
+# publicar_web.py decide a proposito no tocar la base -- no es un cuelgue.
+# Se deja como "failed" en journald de todas formas (no se marca 0 como
+# SuccessExitStatus) porque es justo lo que se quiere ver en
+# `systemctl status` y lo que hace saltar una alerta si tienes una montada.

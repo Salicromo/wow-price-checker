@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ ficha.nombre }} — cheapest realm, EU{% endblock %}
+{% block descripcion %}Where {{ ficha.nombre }} is cheapest right now across all
+EU realms. Updated hourly.{% endblock %}
+
+{% block contenido %}
+<main class="ficha">
+  <h1 class="titulo{% if ficha.calidad %} q-{{ ficha.calidad | lower }}{% endif %}">
+    {%- if ficha.icono %}
+    <img class="icono grande" src="{{ ficha.icono }}" alt="" width="48" height="48">
+    {%- endif %}
+    <span class="titulo-n">{{ ficha.nombre }}</span>
+  </h1>
+
+  <nav class="ilvls">
+    {% for v in ficha.variantes %}
+      {% if v.variante != -1 %}
+        <a href="?ilvl={{ v.variante }}"
+           class="ilvl {% if v.variante == actual.variante %}activo{% endif %}">
+          {{ v.variante }}
+        </a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+
+  <section class="baldosas">
+    {# Con pocos reinos no hay precio "normal": la mediana es el único precio
+       que existe, o el más caro de dos. Se enseña el rango, que sí es cierto,
+       en vez de afirmar lo que la base no sabe. #}
+    {% if actual.mediana_fiable %}
+    <div class="baldosa">
+      <span class="et">Normally costs</span>
+      <span class="val">{{ actual.mediana | oro }}g</span>
+    </div>
+    {% else %}
+    <div class="baldosa">
+      <span class="et">Price range</span>
+      <span class="val">
+        {%- if actual.minimo == actual.maximo -%}
+          {{ actual.minimo | oro }}g
+        {%- else -%}
+          {{ actual.minimo | oro }}–{{ actual.maximo | oro }}g
+        {%- endif -%}
+      </span>
+    </div>
+    {% endif %}
+    <div class="baldosa">
+      <span class="et">Cheapest right now</span>
+      <span class="val barato">{{ actual.minimo | oro }}g</span>
+    </div>
+    <div class="baldosa">
+      <span class="et">Realms in stock</span>
+      <span class="val">{{ actual.reinos }}</span>
+    </div>
+  </section>
+
+  {% if not actual.mediana_fiable %}
+  <p class="aviso">
+    Only {{ actual.reinos }} realm{{ "" if actual.reinos == 1 else "s" }}
+    {{ "has" if actual.reinos == 1 else "have" }} this at item level
+    {{ actual.variante }} right now, so there is no typical price to compare
+    against yet.
+  </p>
+  {% endif %}
+
+  <div class="tabla">
+  <table>
+    <thead>
+      <tr><th class="txt">Realm</th><th>Listings</th><th>Cheapest</th></tr>
+    </thead>
+    <tbody>
+      {% for r in reinos %}
+      <tr>
+        <td class="txt">{{ r.nombre }}</td>
+        <td>{{ r.listados }}</td>
+        <td>{{ r.minimo | oro }}g</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  {% if actual.reinos > reinos|length %}
+  {# Sin enlace a proposito. Esto decia "See all realms" apuntando a `/pro`,
+     que es el plan de pago de la v3 y todavia no existe: con 92 reinos y
+     cinco visibles, esa linea sale en casi todas las fichas, asi que era un
+     404 en casi toda la web. La frase sigue, porque decir cuantos reinos
+     faltan es cierto y util; el enlace vuelve cuando haya adonde llevar. #}
+  <p class="muro">
+    {{ actual.reinos - reinos|length }} more realms ranked by price.
+  </p>
+  {% endif %}
+</main>
+{% endblock %}

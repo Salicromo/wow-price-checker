@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- La rejilla de cobertura: cada cuadro es un personaje. -->
+    <path
+        android:fillColor="#DFB349"
+        android:pathData="M28,32h10v10h-10z M44,32h10v10h-10z M60,32h10v10h-10z M76,32h10v10h-10z M28,50h10v10h-10z M44,50h10v10h-10z M76,50h10v10h-10z M28,68h10v10h-10z M60,68h10v10h-10z" />
+    <path
+        android:fillColor="#4A4335"
+        android:pathData="M60,50h10v10h-10z M44,68h10v10h-10z M76,68h10v10h-10z" />
+</vector>

@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.state/
+analisis/
+publicar/
+
+# El volcado de cada maquina: lo escribe sync_subastas.py y lo publica en la
+# rama 'subastas', no en main. Eran veinte commits por tarde de juego, y en
+# main tapaban el historial de verdad y contaban como contribuciones del dia.
+mis_subastas/
+mis_personajes/
+mis_ventas/
+
+# Base de la web pública (web/db.py): se genera al arrancar el servidor o al
+# importar web.app fuera de un test, nunca se versiona.
+web.db
+web.db-wal
+web.db-shm
+
+# Lo que identifica a tus personajes no se versiona: el repositorio es publico.
+# personajes.yaml lo trae el workflow del repositorio privado, y Personajes.lua
+# lo genera generar_vigilados.py en cada maquina.
+personajes.yaml
+addon/WowAlertsExport/Personajes.lua

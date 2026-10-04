@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }}{% if calidad %} — {{ calidad | capitalize }}{% endif %} — EU auction house prices{% endblock %}
+{% block descripcion %}Every {{ titulo }} item on the EU auction house and what
+it costs across all 92 realms. Updated hourly.{% endblock %}
+
+{% block contenido %}
+<main class="ficha">
+  <nav class="miga">
+    <a href="/items">All items</a>
+    <span>/</span>
+    {% if subclase %}<a href="/items/{{ clase_slug }}">{{ clase_nombre }}</a>
+    <span>/</span>{% endif %}
+    <strong>{{ titulo }}</strong>
+  </nav>
+
+  <h1>{{ titulo }}</h1>
+
+  {# Un desplegable por criterio y no tres filas de pastillas sueltas: con las
+     12 subclases de Armor --o las 15 de Weapon-- el panel media mas que la
+     tabla que filtraba, y aun asi habia que irse a /items para cambiar de
+     categoria. Ahora los tres se abren encima de la propia pagina.
+
+     `<details>` nativo a proposito: sin JavaScript se abren igual, y cada
+     opcion sigue siendo un enlace a una URL de verdad, que es lo que se puede
+     compartir y lo que rastrea Google. El script solo se encarga de cerrarlos
+     al abrir otro o al pulsar fuera. #}
+  <section class="filtros" aria-label="Filters">
+    <div class="filtros-cab">
+      <span class="filtros-t">Filters</span>
+      {% if subclase or calidad %}
+      <a class="limpiar" href="/items/{{ clase_slug }}">Clear all</a>
+      {% endif %}
+    </div>
+
+    <div class="filtro-fila">
+      <details class="desplegable">
+        <summary>
+          <span class="filtro-et">Category</span>
+          <span class="puesto">{{ clase_nombre }}</span>
+        </summary>
+        <div class="menu">
+          {% for c in menu %}
+          <a class="op {% if c.clase_slug == clase_slug %}activo{% endif %}"
+             href="/items/{{ c.clase_slug }}">
+            {{ c.clase }} <span class="cuenta">{{ "{:,}".format(c.objetos) }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+
+      {% if subcategorias %}
+      <details class="desplegable">
+        <summary>
+          <span class="filtro-et">Type</span>
+          <span class="puesto">{% if subclase %}{{ titulo }}{% else %}All{% endif %}</span>
+        </summary>
+        <div class="menu">
+          <a class="op {% if not subclase %}activo{% endif %}"
+             href="/items/{{ clase_slug }}{{ '?' ~ cola if cola }}">All</a>
+          {% for s in subcategorias %}
+          <a class="op {% if s.subclase_slug == subclase %}activo{% endif %}"
+             href="/items/{{ clase_slug }}/{{ s.subclase_slug }}{{ '?' ~ cola if cola }}">
+            {{ s.subclase }} <span class="cuenta">{{ "{:,}".format(s.objetos) }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+
+      {% if calidades %}
+      {# La clase de calidad va en el `<details>` y no en el `<span>`: `--q` se
+         hereda, asi que el rotulo sale del color de lo que hay puesto --morado
+         si es Epic, como en el juego-- y de paso lo tiene el menu, que lo
+         vuelve a fijar a `--ink` para que su "All" no salga morado tambien. #}
+      <details class="desplegable{% if calidad %} q-{{ calidad | lower }}{% endif %}">
+        <summary>
+          <span class="filtro-et">Quality</span>
+          <span class="puesto">
+            {%- if calidad %}{{ calidad | capitalize }}{% else %}All{% endif -%}
+          </span>
+        </summary>
+        <div class="menu">
+          <a class="op {% if not calidad %}activo{% endif %}"
+             href="{{ base_url }}">All</a>
+          {% for c in calidades %}
+          <a class="op q-{{ c.calidad | lower }} {% if c.calidad == calidad %}activo{% endif %}"
+             href="{{ base_url }}?quality={{ c.calidad }}">
+            {{ c.calidad | capitalize }} <span class="cuenta">{{ "{:,}".format(c.objetos) }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
+  </section>
+
+  <p class="conteo">
+    <strong>{{ "{:,}".format(total) }}</strong> item{{ "" if total == 1 else "s" }}
+    {%- if paginas > 1 %} · page {{ pagina }} of {{ paginas }}{% endif %}
+  </p>
+
+  <div class="tabla">
+  <table>
+    <thead>
+      <tr><th class="txt">Item</th><th class="txt opcional">Type</th><th>From</th></tr>
+    </thead>
+    <tbody>
+      {% for p in productos %}
+      <tr>
+        <td class="txt">
+          {% set producto_id, nombre, icono, variante, reino, calidad_obj = p.producto_id, p.nombre, p.icono, -1, None, p.calidad %}
+          {% set calidad = calidad_obj %}
+          {% include "_objeto.html" with context %}
+        </td>
+        <td class="txt opcional">{{ p.subclase }}</td>
+        <td class="oro">{{ p.desde | oro }}g</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  {# La paginacion es lo que de verdad enlaza el catalogo: sin estos enlaces
+     Google solo ve los primeros cien objetos de cada categoria. #}
+  {% if paginas > 1 %}
+  <nav class="pastillas paginacion" aria-label="Pages">
+    {% for n in ventana %}
+      {% if n == pagina %}
+      <span class="pastilla activo">{{ n }}</span>
+      {% else %}
+      <a class="pastilla" href="{{ base_url }}{{ enlace(n) }}">{{ n }}</a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+  {% endif %}
+</main>
+{% endblock %}

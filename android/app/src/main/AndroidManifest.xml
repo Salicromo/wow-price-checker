@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.WowAlerts">
+
+        <!--
+            noHistory y excludeFromRecents: la app se muere en cuanto la dejas
+            de ver, y abrirla siempre empieza de cero.
+
+            Es lo que quieres aqui. Los datos caducan en una hora, asi que
+            volver a una sesion de ayer y ver "nadie lo vende ahi" sobre un
+            volcado viejo es peor que no ver nada: decidirias un precio con
+            informacion falsa. Muriendo al salir, cada vez que entras hay
+            descarga y lo que lees es de ahora.
+
+            configChanges esta para que girar el movil no cuente como abrir de
+            nuevo: eso no invalida nada y no hay que volver a bajarlo todo.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:theme="@style/Theme.WowAlerts">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

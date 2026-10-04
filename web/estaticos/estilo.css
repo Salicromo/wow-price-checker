@@ -1,0 +1,386 @@
+/* ---------------------------------------------------------------------------
+   Auction Sentinel
+
+   Dos ideas mandan aqui:
+
+   1. Los colores de calidad de WoW (gris, blanco, verde, azul, morado,
+      naranja) son el codigo visual mas reconocible del juego. Sin ellos una
+      lista de objetos parece una hoja de calculo; con ellos se lee de un
+      vistazo. Se usan en el nombre y en el borde del icono, igual que en la
+      interfaz del juego.
+
+   2. El resto se aparta. Fondo tranquilo, una sola fuente, un solo acento
+      dorado, y todo el contraste reservado para los datos: el nombre del
+      objeto y el precio.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --ground: #EBEEF2; --surface: #FFF; --ink: #171A21;
+  --muted: #5B6472; --line: #D5DAE1; --gold: #8A6410; --barato: #2C6647;
+  --fila: #F6F8FA;      /* el zebra de las tablas, apenas perceptible */
+  --sombra: 0 1px 2px rgba(23, 26, 33, .06), 0 1px 3px rgba(23, 26, 33, .04);
+
+  /* Calidad. En claro los tonos del juego se oscurecen: el verde #1eff00 y el
+     blanco son ilegibles sobre fondo claro, y el objetivo es que se distingan,
+     no clavar el hex. */
+  --q-poor: #6B7280; --q-common: #171A21; --q-uncommon: #16803C;
+  --q-rare: #0059AD; --q-epic: #7B1FA2; --q-legendary: #B45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #101317; --surface: #181C22; --ink: #E7EAF0;
+    --muted: #99A2B1; --line: #262C35; --gold: #DFB349; --barato: #74C295;
+    --fila: #1C2129;
+    --sombra: none;
+
+    /* En oscuro si son los del juego, que es donde se disenaron. */
+    --q-poor: #9D9D9D; --q-common: #FFFFFF; --q-uncommon: #1EFF00;
+    --q-rare: #3FA0FF; --q-epic: #C77DFF; --q-legendary: #FF8000;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* -- Cabecera -------------------------------------------------------------- */
+
+.nav {
+  padding: 12px 24px; border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 10;
+}
+.marca {
+  color: var(--gold); font-weight: 700; letter-spacing: .06em;
+  text-decoration: none; font-size: 13px; white-space: nowrap;
+}
+/* `position: relative` porque la lista de sugerencias cuelga de aqui. */
+.buscar {
+  flex: 1 1 240px; margin: 0; display: flex; max-width: 480px;
+  position: relative;
+}
+.buscar input {
+  width: 100%; padding: 8px 13px; border-radius: 8px; font: inherit;
+  border: 1px solid var(--line); background: var(--ground); color: var(--ink);
+}
+.buscar input::placeholder { color: var(--muted); }
+.buscar input:focus {
+  outline: none; border-color: var(--gold); background: var(--surface);
+}
+.nav-enlace {
+  color: var(--muted); text-decoration: none; white-space: nowrap;
+  font-weight: 500;
+}
+.nav-enlace:hover { color: var(--gold); }
+
+/* -- Las sugerencias de la caja -------------------------------------------- */
+/* Cuelgan de `.buscar`, tapando lo que haya debajo. Van dentro del `<form>`,
+   que esta dentro de `.nav` (z-index 10), asi que no hace falta pelearse con
+   el resto de la pagina: la cabecera entera ya va por encima. */
+
+.sugerencias {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 1;
+  margin: 0; padding: 5px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: 0 6px 20px rgba(23, 26, 33, .13);
+  max-height: 60vh; overflow-y: auto;
+}
+.sug {
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+  border-radius: 7px; cursor: pointer; color: var(--q, inherit);
+}
+/* `.elegida` y no `:hover` a secas: la senala igual la flecha del teclado que
+   el raton, y las dos tienen que verse igual. */
+.sug:hover, .sug.elegida { background: var(--fila); }
+.sug-n {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 500;
+}
+.sug-p {
+  color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+/* -- Estructura ------------------------------------------------------------ */
+
+.ficha { max-width: 940px; margin: 0 auto; padding: 28px 24px 48px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 14px; letter-spacing: -.01em; }
+.miga {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  font-size: 13px; color: var(--muted); margin-bottom: 12px;
+}
+.miga a { color: var(--muted); text-decoration: none; }
+.miga a:hover { color: var(--gold); }
+.miga strong { color: var(--ink); font-weight: 600; }
+
+/* Rotulo de seccion. `display:block` con aire arriba porque la portada
+   encadena varios; dentro de una baldosa se le quita. */
+.et {
+  display: block; margin: 26px 0 9px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--muted); font-weight: 600;
+}
+.aviso { margin: -4px 0 20px; color: var(--muted); max-width: 64ch; }
+.conteo { margin: 18px 0 10px; color: var(--muted); font-size: 13.5px; }
+.conteo strong { color: var(--ink); }
+.vacio {
+  color: var(--muted); padding: 18px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; margin: 0;
+}
+
+/* -- Calidad --------------------------------------------------------------- */
+
+.q-poor      { --q: var(--q-poor); }
+.q-common    { --q: var(--q-common); }
+.q-uncommon  { --q: var(--q-uncommon); }
+.q-rare      { --q: var(--q-rare); }
+.q-epic      { --q: var(--q-epic); }
+.q-legendary { --q: var(--q-legendary); }
+
+/* -- Objeto: icono + nombre ------------------------------------------------ */
+
+.objeto {
+  display: inline-flex; align-items: center; gap: 10px;
+  color: var(--q, inherit); text-decoration: none; font-weight: 500;
+  vertical-align: middle;
+}
+.objeto:hover .objeto-n { text-decoration: underline; }
+.icono {
+  width: 32px; height: 32px; border-radius: 5px; flex: none; object-fit: cover;
+  /* El borde del color de la calidad, como los marcos del juego. */
+  border: 1px solid var(--q, var(--line));
+  background: var(--ground);
+}
+/* Hueco del mismo tamano cuando Blizzard no tiene icono, para que la columna
+   no baile de fila en fila. Va del color del borde y no del de la calidad: un
+   recuadro vacio en morado epico pesa mas que el objeto que representa. */
+.icono-vacio {
+  display: inline-block; border-color: var(--line); border-style: dashed;
+}
+.icono.grande { width: 48px; height: 48px; border-radius: 8px; border-width: 2px; }
+.titulo { display: flex; align-items: center; gap: 14px; }
+/* El nombre del objeto va del color de su calidad tambien aqui; el icono
+   hereda el mismo en su borde por la variable --q. */
+.titulo-n { color: var(--q, inherit); }
+
+/* -- Pastillas: ilvl y paginas --------------------------------------------- */
+/* Las de subcategoria y calidad se fueron a los desplegables de filtros; estas
+   son las variantes de ilvl de la ficha y los numeros de pagina. */
+
+.ilvls, .pastillas {
+  display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.ilvl, .pastilla {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--q, var(--muted)); text-decoration: none; background: var(--surface);
+  font-size: 13.5px; font-weight: 500; white-space: nowrap;
+}
+.ilvl:hover, .pastilla:hover { border-color: var(--gold); }
+.ilvl.activo, .pastilla.activo {
+  border-color: var(--gold); color: var(--gold); font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--gold);
+}
+.ilvl-et {
+  color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 5px;
+  margin-left: 7px; white-space: nowrap;
+}
+
+/* -- El panel de filtros --------------------------------------------------- */
+/* Empezo siendo pastillas sueltas colgando bajo el titulo: nadie las pulsaba
+   porque nada decia que fueran filtros. Luego fueron filas etiquetadas, y con
+   las 12 subclases de Armor --o las 15 de Weapon-- el panel media mas que la
+   tabla que filtraba. Ahora es un desplegable por criterio: se lee de un
+   vistazo lo que hay puesto, y las opciones solo ocupan sitio al abrirlas. */
+
+.filtros {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 16px; margin-bottom: 18px;
+  box-shadow: var(--sombra);
+}
+.filtros-cab {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 11px;
+}
+.filtros-t {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 700;
+}
+.limpiar { font-size: 13px; color: var(--gold); text-decoration: none; }
+.limpiar:hover { text-decoration: underline; }
+.filtro-fila { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.desplegable { position: relative; }
+.desplegable > summary {
+  display: flex; align-items: baseline; gap: 8px; cursor: pointer;
+  padding: 8px 13px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--ground); list-style: none; user-select: none;
+}
+/* El triangulito propio de `<details>`, fuera: se pinta uno detras del texto
+   para que quede a la derecha y no delante de la etiqueta. */
+.desplegable > summary::-webkit-details-marker { display: none; }
+.desplegable > summary::after {
+  content: "▾"; color: var(--muted); font-size: 11px; margin-left: 2px;
+}
+.desplegable > summary:hover { border-color: var(--gold); }
+.desplegable[open] > summary { border-color: var(--gold); background: var(--surface); }
+.filtro-et {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 600;
+}
+/* Lo que hay puesto, del color de su calidad cuando la tiene: el `--q` lo
+   deja el `q-epic` del propio `<details>`. */
+.puesto { font-weight: 600; font-size: 14px; color: var(--q, var(--ink)); }
+
+.menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 5;
+  min-width: 210px; max-width: min(340px, calc(100vw - 34px));
+  padding: 5px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(23, 26, 33, .13);
+  max-height: 340px; overflow-y: auto;
+  /* El `<details>` de calidad lleva el `q-epic` de lo que hay puesto para
+     pintar su rotulo, y `--q` se hereda: sin esto el "All" del menu saldria
+     tambien morado. Las opciones con su propia clase se lo vuelven a poner. */
+  --q: var(--ink);
+}
+.op {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 7px 10px; border-radius: 7px;
+  color: var(--q, var(--ink)); text-decoration: none; font-size: 14px;
+  white-space: nowrap;
+}
+.op:hover { background: var(--fila); }
+.op.activo { background: var(--fila); font-weight: 700; }
+/* La marca de la que esta puesta. Va de `--gold` y no del color de la calidad:
+   dice "esta es la de ahora", que no es lo mismo que decir de que calidad es. */
+.op.activo::after { content: "✓"; color: var(--gold); font-weight: 700; }
+.cuenta {
+  font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+
+/* El menu de categorias de la cabecera. Es el mismo control que los filtros de
+   la pagina de categoria --mismo `<details>`, mismo boton, mismo cierre al
+   pulsar fuera-- y eso es deliberado: lo que sirve para elegir que objetos ver
+   tiene el mismo aspecto en toda la web. Aqui solo cambia donde cae el menu.
+
+   Sustituye al enlace "Browse", que abria una pagina cuyo unico contenido era
+   elegir; ahora se elige desde donde estes. */
+.menu-nav > summary { padding: 7px 13px; }
+/* Se alinea por la derecha: es lo ultimo de la barra, y colgando por la
+   izquierda se saldria de la pantalla en cuanto la ventana se estreche. */
+.menu-nav .menu {
+  left: auto; right: 0;
+  /* Mas alto que el de los filtros: son 13 categorias mas el indice, y un menu
+     que hay que desplazar para ver la mitad de lo que ofrece no ensena lo que
+     ofrece. */
+  max-height: min(70vh, 540px);
+}
+/* "All items" no es una de las trece: es el indice del que cuelgan todas. Una
+   raya y el color del texto secundario lo dicen sin escribirlo. */
+.op-indice {
+  border-top: 1px solid var(--line); margin-top: 4px; padding-top: 9px;
+  color: var(--muted);
+}
+
+/* -- Baldosas de cifras ---------------------------------------------------- */
+
+.baldosas {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px;
+}
+.baldosa {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 18px; flex: 1 1 150px; display: flex; flex-direction: column;
+  gap: 3px; box-shadow: var(--sombra);
+}
+.baldosa .et { margin: 0; }
+.val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.val.barato { color: var(--barato); }
+
+/* -- Tablas ---------------------------------------------------------------- */
+
+.tabla {
+  overflow-x: auto; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); box-shadow: var(--sombra);
+}
+table { width: 100%; border-collapse: collapse; background: transparent; }
+th, td { padding: 10px 16px; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th.txt, td.txt { text-align: left; }
+th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 700; border-bottom: 1px solid var(--line);
+  background: var(--fila);
+}
+td { font-variant-numeric: tabular-nums; border-top: 1px solid var(--line); }
+tbody tr:first-child td { border-top: none; }
+tbody tr:hover { background: var(--fila); }
+.oro { font-weight: 600; }
+.pct { color: var(--barato); font-weight: 700; }
+/* Los enlaces de una tabla que no son objetos (el reino) van del color del
+   texto: el subrayado se guarda para el hover. */
+td a { color: inherit; text-decoration: none; }
+td a:hover { color: var(--gold); text-decoration: underline; }
+.muro {
+  padding: 14px 16px; color: var(--muted); margin: 0;
+  border-top: 1px solid var(--line);
+}
+.muro a { color: var(--gold); }
+
+/* -- Rejilla de categorias ------------------------------------------------- */
+
+.tarjetas {
+  display: grid; gap: 10px; margin-top: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+.tarjeta {
+  display: flex; flex-direction: column; gap: 3px; padding: 15px 17px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  text-decoration: none; color: inherit; box-shadow: var(--sombra);
+}
+.tarjeta:hover { border-color: var(--gold); }
+.tarjeta-n { font-size: 16px; font-weight: 600; }
+.tarjeta .et { margin: 0; }
+.paginacion { margin-top: 20px; }
+
+/* -- Pie ------------------------------------------------------------------- */
+
+.pie {
+  max-width: 940px; margin: 40px auto; padding: 0 24px;
+  color: var(--muted); font-size: 12.5px;
+}
+
+/* -- Estrecho -------------------------------------------------------------- */
+
+.reino-movil { display: none; }
+
+@media (max-width: 560px) {
+  /* Se cae la columna del precio normal y la del reino: con el icono delante
+     del nombre y nombres de reino conectado como "Echsenkessel / Blackhand /
+     Mal'Ganis / Taerar", las cuatro columnas dejaban el % de rebaja fuera de
+     la pantalla. El reino pasa debajo del nombre, que se lee mejor. */
+  th.opcional, td.opcional, th.reino-col, td.reino-col { display: none; }
+  .reino-movil {
+    display: block; color: var(--muted); font-size: 12px; margin-top: 2px;
+  }
+  .objeto { align-items: flex-start; }
+  .ficha { padding: 20px 14px 36px; }
+  h1 { font-size: 23px; }
+  th, td { padding: 10px 11px; }
+  /* Los tres desplegables no caben en una linea de 375px, pero apilarlos del
+     todo desperdicia el ancho: envuelven, y el que sobra cae a la segunda. */
+  .filtro-fila { gap: 8px; position: relative; }
+  .desplegable > summary { padding: 7px 11px; }
+  /* El menu cuelga de la fila entera y no de su boton. Medido en un movil de
+     375px: el de "Type", que empieza en x=203, se salia 38px por la derecha y
+     esos 38px no habia forma de verlos --la pagina no hace scroll lateral, se
+     quedaban cortados. Asi ocupa el ancho del panel, que ademas es lo comodo
+     con el pulgar. Solo hay uno abierto a la vez, de eso se encarga
+     `interfaz.js`. */
+  .desplegable { position: static; }
+  .menu, .menu-nav .menu { left: 0; right: 0; min-width: 0; max-width: none; }
+}

@@ -1,0 +1,152 @@
+name: Ajustar un tope
+
+# Cambiar un tope desde el movil, sin abrir config.yaml.
+#
+# Lo dispara una issue con la etiqueta 'tope', que abre cualquiera de los tres
+# caminos: la app Wow Alerts, el formulario de desplegables, o el de texto al
+# que apunta el enlace de un aviso de Discord. Los tres generan el mismo cuerpo,
+# asi que aqui no hay ramas por origen.
+#
+# 'reopened' ademas de 'opened' para poder reintentar: una issue que fallo --o
+# que se abrio cuando este workflow todavia no existia-- se recupera cerrandola
+# y volviendo a abrirla, sin tener que repetir el cambio desde el movil.
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  aplicar:
+    # Dos issues a la vez editarian el mismo fichero, y la segunda commitearia
+    # sobre una copia vieja. En serie, cada una parte del config.yaml que dejo
+    # la anterior.
+    #
+    # A nivel de job, no de workflow: el group se une al CREAR la ejecucion,
+    # antes de evaluar el 'if' de abajo. A nivel de workflow, cualquier issue
+    # --tambien las que disparan el otro workflow, objeto.yml-- entraria en
+    # este grupo aunque su job vaya a saltarse, y podria cancelar una ejecucion
+    # real pendiente ("higher priority waiting request"). A nivel de job, los
+    # jobs que se saltan no se unen al grupo.
+    concurrency:
+      group: tope-config
+      cancel-in-progress: false
+    # Se mira la etiqueta O el titulo, y no solo la etiqueta, porque GitHub NO
+    # aplica una etiqueta de plantilla que no exista ya en el repositorio: si
+    # falta la etiqueta 'tope', la issue se crea sin ella y esto no se disparaba
+    # nunca, en silencio. El prefijo del titulo lo ponen las dos plantillas y la
+    # app, asi que aguanta aunque la etiqueta no llegue a existir.
+    #
+    # El autor tiene que ser el dueno del repositorio. El repositorio es privado,
+    # asi que esto es cinturon sobre tirantes, pero un job con 'contents: write'
+    # disparado por una issue se los merece los dos.
+    if: >-
+      (contains(github.event.issue.labels.*.name, 'tope') ||
+       startsWith(github.event.issue.title, 'Tope:')) &&
+      github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v7
+        with:
+          # Sin esto, checkout se planta en el SHA que llevaba el evento, que es
+          # la punta de main de CUANDO SE ABRIO la issue. Cuatro topes seguidos
+          # desde el movil hacen que el segundo commitee sobre una copia vieja y
+          # el push salga rechazado, aunque el grupo de concurrencia los haya
+          # puesto en fila.
+          ref: main
+
+      - name: Instalar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Aplicar el cambio
+        id: aplicar
+        env:
+          # El cuerpo viaja por el entorno y NO interpolado dentro del script:
+          # es texto que escribe un formulario, y metido en un 'run:' seria una
+          # inyeccion de shell de manual.
+          CUERPO: ${{ github.event.issue.body }}
+        run: |
+          set +e
+          printf '%s' "$CUERPO" | python aplicar_tope.py > comentario.md
+          echo "codigo=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat comentario.md
+
+      - name: Commitear config.yaml
+        id: commit
+        if: steps.aplicar.outputs.codigo == '0'
+        env:
+          # Por el entorno, como el cuerpo: el titulo tambien lo escribe quien
+          # abre la issue, y dentro del script seria inyeccion de shell.
+          TITULO: ${{ github.event.issue.title }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add config.yaml
+          # Poner el tope que ya tenia es un cambio valido que no deja diff.
+          if git diff --cached --quiet; then
+            echo "" >> comentario.md
+            echo "Ese ya era el tope, asi que no hay nada que commitear." >> comentario.md
+            exit 0
+          fi
+          # El titulo ya viene con el prefijo "Tope:" desde las plantillas y
+          # desde la app, asi que anadirlo aqui lo duplicaria.
+          git commit -q -m "$TITULO"
+          # El volcado de subastas empuja a main por su cuenta y puede colarse
+          # entre el checkout y esto. Rebasar y reintentar: el cambio de tope es
+          # una linea de config.yaml, no choca con nada de lo que sube el volcado.
+          for intento in 1 2 3; do
+            git push -q && break
+            echo "Push rechazado (intento $intento). Rebaso y lo repito."
+            git pull -q --rebase origin main
+          done
+          git push -q
+          echo "" >> comentario.md
+          echo "Commit \`$(git rev-parse --short HEAD)\` en \`main\`." >> comentario.md
+
+      - name: Responder en la issue
+        # Tambien cuando el cambio ha fallado: el comentario es justamente lo que
+        # te dice por que, y sin el te quedas con una issue muda.
+        if: always() && steps.aplicar.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$NUMERO" --body-file comentario.md
+          # Si ha ido mal, la issue se queda ABIERTA: es lo que te deja corregir
+          # sin volver a empezar.
+          # Tambien se queda abierta si el cambio se aplico pero no se pudo
+          # subir: cerrarla ahi te dice que esta hecho cuando en realidad el
+          # tope se ha perdido.
+          if [ "${{ steps.aplicar.outputs.codigo }}" = "0" ] && [ "${{ steps.commit.outcome }}" = "success" ]; then
+            gh issue close "$NUMERO"
+          fi
+
+  rechazar:
+    # Una issue con la etiqueta pero abierta por otro. No deberia pasar en un
+    # repositorio privado, pero callarse seria peor que decirlo.
+    if: >-
+      (contains(github.event.issue.labels.*.name, 'tope') ||
+       startsWith(github.event.issue.title, 'Tope:')) &&
+      github.event.issue.user.login != github.repository_owner
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.issue.number }}
+        run: |
+          gh issue close "$NUMERO" --repo "$GITHUB_REPOSITORY" \
+            --comment "Solo el dueno del repositorio puede cambiar topes. No he tocado config.yaml."

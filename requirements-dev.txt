@@ -1,0 +1,10 @@
+-r requirements.txt
+pytest>=8.0
+requests-mock>=1.11
+# TestClient (fastapi.testclient) es de Starlette y necesita httpx en tiempo
+# de ejecución; solo hace falta para los tests, no para servir la web.
+httpx>=0.27
+# Interprete de Lua embebido: permite ejecutar el addon fuera del juego,
+# simulando las APIs de WoW, para probar lo que exporta. Si no esta instalado,
+# tests/test_addon.py se salta en vez de fallar.
+lupa>=2.0

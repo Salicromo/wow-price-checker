@@ -1,0 +1,28 @@
+{#- Nombre de un objeto con su icono, su calidad y su ilvl.
+
+    El color del nombre es el de la calidad, como en el juego: gris, blanco,
+    verde, azul, morado, naranja. Es el codigo visual que hace que una lista de
+    objetos de WoW se lea de un vistazo en vez de parecer una hoja de calculo.
+    La clase sale en minusculas (`q-epic`) y solo si hay calidad: un objeto
+    recien visto todavia no esta clasificado.
+
+    El icono es opcional a proposito: Blizzard no lo tiene para todo, y un
+    `<img src="">` hace que algunos navegadores vuelvan a pedir la propia
+    pagina. Sin icono se pinta un hueco del mismo tamano para que la columna no
+    baile.
+
+    `loading="lazy"` porque una pagina de categoria son cien iconos del CDN de
+    Blizzard, y ninguno hace falta hasta que se llega a su fila. -#}
+<a class="objeto{% if calidad %} q-{{ calidad | lower }}{% endif %}"
+   href="/item/{{ producto_id }}">
+  {%- if icono %}
+  <img class="icono" src="{{ icono }}" alt="" width="32" height="32" loading="lazy">
+  {%- else %}
+  <span class="icono icono-vacio" aria-hidden="true"></span>
+  {%- endif %}
+  <span class="objeto-n">{{ nombre }}</span>
+</a>
+{%- if variante != -1 %}<span class="ilvl-et">{{ variante }}</span>{% endif %}
+{#- El reino repetido para pantalla estrecha, donde su columna se cae: sin el,
+    la fila dice que algo esta al 95% pero no donde comprarlo. -#}
+{% if reino %}<span class="reino-movil">{{ reino }}</span>{% endif %}

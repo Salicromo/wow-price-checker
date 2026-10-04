@@ -1,0 +1,419 @@
+# ============================================================================
+#  Configuracion del vigilante de precios de la Casa de Subastas
+# ----------------------------------------------------------------------------
+#  Edita SOLO este fichero para cambiar objetos y precios. No hace falta tocar
+#  el codigo Python. Si escribes algo mal, el script te lo dira al arrancar
+#  en vez de fallar a medias.
+# ============================================================================
+
+# Region de la API de Blizzard: eu, us, kr o tw.
+region: eu
+
+# ----------------------------------------------------------------------------
+#  OBJETOS QUE VIGILAR
+# ----------------------------------------------------------------------------
+#  El equipo lleva su propia tabla "ilvl -> precio maximo EN ORO".
+#  Solo se avisa de los ilvl que aparezcan aqui: si una subasta es de un ilvl
+#  que no has listado, se ignora aunque sea baratisima.
+#
+#  Lo que no escala (patrones, recetas, monturas) es siempre el mismo objeto,
+#  asi que en vez de tabla lleva un unico "max_price" en oro y se avisa de
+#  cualquier subasta a ese precio o por debajo.
+#
+#  Con "avisar_undercut: false" ese objeto deja de generar avisos de undercut.
+#  Los chollos y las ventas siguen igual.
+#
+#  Opcionalmente puedes fijar "item_id" para saltarte la busqueda por nombre
+#  (mas rapido y a prueba de cambios de nombre). Lo veras en el log la primera
+#  vez que se ejecute, y tambien en la URL de Wowhead del objeto.
+# ----------------------------------------------------------------------------
+items:
+  - name: "Greaves of the Noxious Depths"
+    max_price_by_ilvl:
+      { 295: 6999, 298: 12000, 305: 10000, 308: 15000, 311: 35000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Temple Delver's Mystic Helm"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 18000, 308: 30000, 311: 40000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Slitherscale Girdle"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 18000, 308: 20000, 311: 40000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Slippers of the Hissing Cult"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 14000, 308: 20000, 311: 40000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Pauldrons of the Forgotten Sacrifice"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 40000, 308: 40000, 311: 60000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Venom Rite Mantle"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 20000, 308: 30000, 311: 50000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Crushing Coiler Coif"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 14000, 308: 20000, 311: 40000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Fanged Brute's Greatbelt"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 20000, 308: 30000, 311: 60000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  - name: "Bound Serpent's Jade Eye"
+    max_price_by_ilvl:
+      { 295: 9000, 298: 12000, 305: 35000, 308: 50000, 311: 70000,
+        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+
+  # Los patrones no escalan: no hay ilvl que valga mas o menos, asi que llevan
+  # un solo precio con "max_price". De estos no quiero avisos de undercut, solo
+  # chollos y ventas, y eso es lo que apaga "avisar_undercut". Pero si quiero
+  # repostearlos con la tecla del addon, y para eso lleva "repostear: true":
+  # sin ella, al no avisar de undercut tampoco entrarian en el reposteo.
+  - name: "Pattern: Arcanoweave Cord"
+    item_id: 258126
+    max_price: 60000
+    avisar_undercut: false
+    repostear: true
+
+  - name: "Pattern: Luxurious Silvermoon Lounge Cushion"
+    item_id: 258131
+    max_price: 40000
+    avisar_undercut: false
+    repostear: true
+
+  # --------------------------------------------------------------------------
+  #  Monturas caras
+  # --------------------------------------------------------------------------
+  #  Tope de 200.000 para todas, que esta muy por debajo de lo que valen: la
+  #  mas barata de la region (Innovation Investigator) tiene una mediana de
+  #  878.000 y la mas cara (Wooly White Rhino) de 2.899.981. O sea que esto no
+  #  avisa de "esta baratita", avisa de que alguien se ha equivocado.
+  #
+  #  Por eso mismo saltara poco: en el volcado del 2026-09-03 ninguna estaba
+  #  por debajo ni de la mitad de su mediana. Es una trampa puesta, no una
+  #  lista de la compra.
+  - name: "Wooly White Rhino"
+    item_id: 54068
+    max_price: 200000
+    avisar_undercut: false
+
+  - name: "X-51 Nether-Rocket X-TREME"
+    item_id: 49286
+    max_price: 200000
+    avisar_undercut: false
+
+  - name: "Crowd Pummeler 2-30"
+    item_id: 221967
+    max_price: 200000
+    avisar_undercut: false
+
+  - name: "Margin Manipulator"
+    item_id: 229954
+    max_price: 200000
+    avisar_undercut: false
+
+  - name: "Asset Advocator"
+    item_id: 229952
+    max_price: 200000
+    avisar_undercut: false
+
+  - name: "Innovation Investigator"
+    item_id: 229941
+    max_price: 200000
+    avisar_undercut: false
+
+  # --------------------------------------------------------------------------
+  #  Mascotas caras
+  # --------------------------------------------------------------------------
+  #  Las mascotas van por "pet_species_id" y no por "item_id". No es un capricho:
+  #  en las subastas TODAS las mascotas son el objeto 82800, y lo unico que las
+  #  distingue es la especie. Una regla con item_id 82800 avisaria de cada rata
+  #  en venta de la region.
+  #
+  #  Tope de 100.000 para todas. Las medianas van de 487.999 (Phoenix Wishwing)
+  #  a 1.198.800 (Nightsaber Cub), asi que aqui tambien se avisa solo del error
+  #  de otro.
+  #
+  #  Ojo con una cosa que no se mira: el NIVEL. Una mascota de nivel 25 vale mas
+  #  que la misma de nivel 1, y para el vigilante son la misma. La inmensa
+  #  mayoria de lo que se subasta es de nivel 1, asi que como mucho te llevaras
+  #  la sorpresa buena.
+  - name: "Nightsaber Cub"
+    pet_species_id: 303
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Landro's Lichling"
+    pet_species_id: 302
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Guardian Cub"
+    pet_species_id: 311
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Landro's Lil' XT"
+    pet_species_id: 285
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Ethereal Soul-Trader"
+    pet_species_id: 183
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Purple Puffer"
+    pet_species_id: 328
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Gregarious Grell"
+    pet_species_id: 333
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Gusting Grimoire"
+    pet_species_id: 1174
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Spectral Tiger Cub"
+    pet_species_id: 242
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Crimson Mechasaur"
+    pet_species_id: 4638
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Phoenix Wishwing"
+    pet_species_id: 3292
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Gilded Wader"
+    pet_species_id: 2938
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Everliving Spore"
+    pet_species_id: 1998
+    max_price: 100000
+    avisar_undercut: false
+
+  - name: "Knockoff Blingtron"
+    pet_species_id: 1806
+    max_price: 100000
+    avisar_undercut: false
+
+# ----------------------------------------------------------------------------
+#  ORDEN DE LOS AVISOS
+# ----------------------------------------------------------------------------
+#  En que orden quieres leer los avisos, por nombre de personaje, va en
+#  personajes.yaml y no aqui: este fichero es publico y los nombres de tus
+#  personajes no. Copia personajes.example.yaml a personajes.yaml y rellenalo;
+#  esta en .gitignore. En Actions lo trae el workflow del repositorio privado.
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+#  MAPA DE BONUS ID -> ILVL
+# ----------------------------------------------------------------------------
+#  Blizzard no dice el ilvl de una subasta directamente: lo codifica en una
+#  lista de "bonus ids". Esta tabla los traduce. Es la fuente mas fiable, asi
+#  que se consulta la primera.
+#
+#  Cada gama de mejora (Adventurer / Veteran / Champion / Hero / Myth) ocupa un
+#  bloque de 8 ids consecutivos: los 6 escalones que se ven en el juego mas 2
+#  escalones extra por encima. Ojo: gamas distintas se solapan en ilvl. Por
+#  ejemplo el 311 se alcanza tanto por Champion 7/8 (12839) como por Hero 3/6
+#  (12843), y ambos son igual de buenos.
+#
+#  Tabla comprobada contra los datos de tooltip de Wowhead, verificando ademas
+#  que el mismo bonus id da el mismo ilvl en objetos de ranuras distintas.
+#
+#  Si dejas de recibir alertas, lo mas probable es que Blizzard haya cambiado
+#  estos ids en un parche. Ejecuta:
+#      .venv\Scripts\python.exe main.py --dry-run --realms 1305 -v
+#  y mira en el log los "bonus" de los objetos vistos para actualizar la tabla.
+# ----------------------------------------------------------------------------
+bonus_ilvl_map:
+  # Adventurer (1/6 .. 6/6, mas 2 escalones extra)
+  12817: 266
+  12818: 269
+  12819: 272
+  12820: 276
+  12821: 279
+  12822: 282
+  12823: 285
+  12824: 289
+  # Veteran
+  12825: 279
+  12826: 282
+  12827: 285
+  12828: 289
+  12829: 292
+  12830: 295
+  12831: 298
+  12832: 302
+  # Champion
+  12833: 292
+  12834: 295
+  12835: 298
+  12836: 302
+  12837: 305
+  12838: 308
+  12839: 311
+  12840: 315
+  # Hero
+  12841: 305
+  12842: 308
+  12843: 311
+  12844: 315
+  12845: 318
+  12846: 321
+  12847: 324
+  12848: 328
+  # Myth
+  12849: 318
+  12850: 321
+  12851: 324
+  12852: 328
+  12853: 331
+  12854: 334
+  12855: 337
+  12856: 340
+
+# ----------------------------------------------------------------------------
+#  AJUSTES (los valores por defecto van bien; toca solo si sabes lo que haces)
+# ----------------------------------------------------------------------------
+settings:
+  # Lo cambia el interruptor de avisos de la app (ver aplicar_avisos.py).
+  # En pausa se sigue vigilando, pero no se envia nada a Discord.
+  avisos_pausados: false
+  # Si no se puede determinar el ilvl de una subasta, avisar igualmente cuando
+  # el precio este por debajo del umbral MAS BARATO de ese objeto. La alerta
+  # sale marcada como "ilvl sin confirmar".
+  alert_on_unconfirmed_ilvl: true
+
+  # Reinos escaneados a la vez. No lo subas a lo loco: cada reino en vuelo
+  # mantiene en memoria toda su lista de subastas ya procesada, y en un reino
+  # grande eso son cientos de MB. Con 8 el escaneo completo de EU tarda unos
+  # pocos minutos, que es de sobra para un cron cada hora.
+  max_workers: 8
+
+  # Segundos de espera por peticion. Las subastas de un reino grande tardan.
+  request_timeout: 45
+
+  # Cuantas ejecuciones se recuerda una subasta ya avisada antes de olvidarla.
+  # 72 = 3 dias con el cron cada hora, mas que la duracion maxima de una subasta.
+  state_retention_runs: 72
+
+  # Si falla mas de esta fraccion de reinos, el proceso termina con error y te
+  # avisa por Discord (para que no te quedes sin alertas sin enterarte).
+  failure_ratio_threshold: 0.30
+
+  # --------------------------------------------------------------------------
+  #  Cuando Blizzard publica el volcado tarde
+  # --------------------------------------------------------------------------
+  #  La casa de subastas se regenera una vez por hora y para toda la region a la
+  #  vez. Si algun dia Blizzard se retrasa, la pasada se encontraria los datos de
+  #  la hora anterior --ya vistos, sin nada nuevo-- y no habria otra oportunidad
+  #  hasta la hora siguiente. En ese caso se espera y se vuelve a mirar.
+  #
+  #  Cada intento avisa por su cuenta, asi que un chollo que solo aparezca en
+  #  el primero se envia igual.
+
+  # A partir de que antiguedad se da por hecho que el volcado de esta hora
+  # todavia no ha salido. Como se regenera cada hora, cualquier cosa por encima
+  # de 60 delata un retraso.
+  #
+  # Esto NO depende del minuto al que publique Blizzard, y es a proposito: antes
+  # habia aqui un "dump_minute: 31" y el 2026-09-02 resulto que habian pasado a
+  # publicar a y 23, asi que cada pasada se creia tarde, dormia y reescaneaba los
+  # 92 reinos dos veces de balde. Por antiguedad da igual el minuto que elijan.
+  #
+  # No lo subas buscando margen: cuanto mas cerca de la publicacion dispare el
+  # cron, menos envejece el volcado viejo antes de que lo miremos, y un margen
+  # de mas se lo traga por bueno y te deja sin alertas esa hora.
+  max_dump_age_minutes: 61
+
+  # Cuantas veces reintentar si el volcado de esta hora aun no ha salido.
+  # 0 lo desactiva y la pasada se conforma con lo que haya.
+  stale_retries: 2
+
+  # Cuanto se vigila, como mucho, en cada intento.
+  stale_retry_wait_seconds: 120
+
+  # Cada cuanto se pregunta durante esa vigilancia. Preguntar la hora de
+  # publicacion cuesta 0,4 s y unos pocos KB, porque se lee la cabecera de la
+  # respuesta y se corta antes del cuerpo, asi que se puede mirar a menudo y
+  # volver a escanear en cuanto aparece el volcado nuevo.
+  dump_poll_seconds: 15
+
+  # Cuanto se espera a un volcado que esta a punto de salir, en vez de procesar
+  # el de la hora anterior.
+  #
+  # Esto tapa el agujero de disparar justo ANTES de la publicacion, que es lo
+  # que pasa en cuanto Blizzard la mueve mas tarde: sin esto, cada pasada
+  # avisaria de chollos de hace 54 minutos --que ya se ha llevado alguien-- y
+  # asi hasta que el disparo se recolocase tres pasadas despues.
+  #
+  # Solo se aplica a las pasadas programadas, y solo cuando el siguiente volcado
+  # cae dentro de estos minutos, asi que en marcha normal no espera nunca: el
+  # volcado recien salido tiene 2 minutos y el siguiente esta a 58.
+  espera_maxima_minutos: 12
+
+  # --------------------------------------------------------------------------
+  #  Horas en las que no quieres que suene nada
+  # --------------------------------------------------------------------------
+  #  Ventana en TU hora local (la zona de abajo). La de inicio entra y la de fin
+  #  no: con 1 y 9, a las 09:00 ya suena. Poniendolas iguales no se silencia
+  #  nada.
+  #
+  #  Solo se calla el ENVIO. Las pasadas siguen corriendo cada hora y el estado
+  #  sigue actualizandose, porque el seguimiento de ventas necesita ver tus
+  #  subastas hora tras hora: saltarse ocho pasadas seguidas degradaria las
+  #  fechas de caducidad y se tragaria ventas de verdad.
+  #
+  #  Lo que se calla no se pierde:
+  #    - Chollos y undercuts no se marcan como avisados, asi que al terminar la
+  #      ventana se envia lo que siga vivo, que es lo unico accionable.
+  #    - Las ventas se quedan pendientes y se deciden al despertar, con la hora
+  #      en la que la subasta desaparecio de verdad, no con la de esa pasada.
+  silencio_desde: 1
+  silencio_hasta: 9
+
+  # Zona en la que se leen esas horas. Las pasadas corren en GitHub Actions, con
+  # el reloj en UTC, asi que sin esto la ventana se desplazaria sola en cada
+  # cambio de hora.
+  zona_horaria: "Europe/Madrid"
+
+  # --------------------------------------------------------------------------
+  #  Ventas de tus propias subastas
+  # --------------------------------------------------------------------------
+  # Comision que se queda la casa de subastas al vender algo. Es lo que separa
+  # el precio al que publicas de lo que llega de verdad al buzon.
+  ah_cut_pct: 5
+
+  # Cuantas horas dejas puestas tus subastas. Ojo: aqui va la duracion MAS
+  # CORTA que uses nunca, no la habitual.
+  #
+  # De este numero sale la deteccion de ventas. Si una subasta no estaba en el
+  # volcado de las 14:31 y si en el de las 15:31, se publico entre esas dos
+  # horas, asi que no puede caducar antes de las 02:31. Si desaparece antes, se
+  # ha vendido: es imposible que haya caducado.
+  #
+  # Poner aqui mas horas de las reales convertiria caducaciones en ventas
+  # falsas. Poner menos solo hace la deteccion mas floja, nunca incorrecta.
+  listing_hours: 12

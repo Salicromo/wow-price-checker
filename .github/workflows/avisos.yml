@@ -1,0 +1,110 @@
+name: Pausar o reanudar avisos
+
+# El interruptor de avisos de la app. La app abre una issue titulada
+# "Avisos: pausar" o "Avisos: reanudar" y esto escribe avisos_pausados en
+# config.yaml. Mismo esquema que tope.yml: el token de la app no necesita
+# permiso de escritura sobre el codigo, solo sobre las issues.
+#
+# 'reopened' para poder reintentar una que fallo sin repetirla desde el movil.
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  aplicar:
+    # El mismo grupo que topes y objetos: los tres editan config.yaml, y en
+    # paralelo el segundo commitearia sobre una copia vieja. A nivel de job y no
+    # de workflow por lo que se explica en tope.yml.
+    concurrency:
+      group: tope-config
+      cancel-in-progress: false
+    # Por el titulo: lo pone la app y la plantilla. Solo el dueno del repo.
+    if: >-
+      startsWith(github.event.issue.title, 'Avisos:') &&
+      github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v7
+        with:
+          # La punta de main de ahora, no la de cuando se abrio la issue.
+          ref: main
+
+      - name: Instalar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Aplicar el cambio
+        id: aplicar
+        env:
+          # Por el entorno y no interpolado en el script: es texto de una issue.
+          CUERPO: ${{ github.event.issue.body }}
+        run: |
+          set +e
+          printf '%s' "$CUERPO" | python aplicar_avisos.py > comentario.md
+          echo "codigo=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat comentario.md
+
+      - name: Commitear config.yaml
+        id: commit
+        if: steps.aplicar.outputs.codigo == '0'
+        env:
+          TITULO: ${{ github.event.issue.title }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add config.yaml
+          # Pausar lo que ya estaba pausado es valido y no deja diff.
+          if git diff --cached --quiet; then
+            echo "" >> comentario.md
+            echo "Ya estaban asi, no hay nada que commitear." >> comentario.md
+            exit 0
+          fi
+          git commit -q -m "$TITULO"
+          for intento in 1 2 3; do
+            git push -q && break
+            echo "Push rechazado (intento $intento). Rebaso y lo repito."
+            git pull -q --rebase origin main
+          done
+          git push -q
+          echo "" >> comentario.md
+          echo "Commit \`$(git rev-parse --short HEAD)\` en \`main\`." >> comentario.md
+
+      - name: Responder en la issue
+        if: always() && steps.aplicar.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$NUMERO" --body-file comentario.md
+          # Abierta si algo ha ido mal: asi se ve que no se aplico.
+          if [ "${{ steps.aplicar.outputs.codigo }}" = "0" ] && [ "${{ steps.commit.outcome }}" = "success" ]; then
+            gh issue close "$NUMERO"
+          fi
+
+  rechazar:
+    if: >-
+      startsWith(github.event.issue.title, 'Avisos:') &&
+      github.event.issue.user.login != github.repository_owner
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.issue.number }}
+        run: |
+          gh issue close "$NUMERO" --repo "$GITHUB_REPOSITORY" \
+            --comment "Solo el dueno del repositorio puede pausar los avisos. No he tocado config.yaml."

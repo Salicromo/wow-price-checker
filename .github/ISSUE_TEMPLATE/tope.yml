@@ -1,0 +1,89 @@
+# ============================================================================
+#  GENERADO POR topes_form.py -- NO LO EDITES A MANO
+# ----------------------------------------------------------------------------
+#  Las opciones salen de config.yaml. Si anades o quitas un objeto alli, vuelve
+#  a generarlo:
+#      .venv\Scripts\python.exe topes_form.py
+#  tests/test_topes_form.py falla mientras no lo hagas.
+# ============================================================================
+
+name: Ajustar un tope
+description: Cambia el precio maximo de un objeto que ya vigilas.
+title: "Tope: "
+labels: [tope]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cambia el tope de un objeto que **ya** vigilas. Para empezar a
+        vigilar uno nuevo, usa la plantilla 'Anadir un objeto'. Para un
+        ilvl que no esta en su tabla, tambien: con una pieza que ya
+        vigilas, anade esos ilvl a su tabla.
+
+  - type: dropdown
+    id: objeto
+    attributes:
+      label: Objeto
+      options:
+        - "Asset Advocator"
+        - "Bound Serpent's Jade Eye"
+        - "Crimson Mechasaur"
+        - "Crowd Pummeler 2-30"
+        - "Crushing Coiler Coif"
+        - "Ethereal Soul-Trader"
+        - "Everliving Spore"
+        - "Fanged Brute's Greatbelt"
+        - "Gilded Wader"
+        - "Greaves of the Noxious Depths"
+        - "Gregarious Grell"
+        - "Guardian Cub"
+        - "Gusting Grimoire"
+        - "Innovation Investigator"
+        - "Knockoff Blingtron"
+        - "Landro's Lichling"
+        - "Landro's Lil' XT"
+        - "Margin Manipulator"
+        - "Nightsaber Cub"
+        - "Pattern: Arcanoweave Cord"
+        - "Pattern: Luxurious Silvermoon Lounge Cushion"
+        - "Pauldrons of the Forgotten Sacrifice"
+        - "Phoenix Wishwing"
+        - "Purple Puffer"
+        - "Slippers of the Hissing Cult"
+        - "Slitherscale Girdle"
+        - "Spectral Tiger Cub"
+        - "Temple Delver's Mystic Helm"
+        - "Venom Rite Mantle"
+        - "Wooly White Rhino"
+        - "X-51 Nether-Rocket X-TREME"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ilvl
+    attributes:
+      label: ilvl
+      description: >-
+        Los patrones, monturas y mascotas no escalan: para esos, elige
+        la ultima opcion.
+      options:
+        - "295"
+        - "298"
+        - "305"
+        - "308"
+        - "311"
+        - "318"
+        - "321"
+        - "324"
+        - "328"
+        - "sin ilvl (precio unico)"
+    validations:
+      required: true
+
+  - type: input
+    id: tope
+    attributes:
+      label: Tope nuevo, en oro
+      placeholder: "4000"
+    validations:
+      required: true

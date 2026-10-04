@@ -1,0 +1,237 @@
+name: WoW Price Monitor
+
+on:
+  schedule:
+    # RED DE SEGURIDAD, no la via principal.
+    #
+    # La ejecucion de cada hora la dispara un cron externo llamando a la API de
+    # GitHub (ver README), porque un workflow_dispatch arranca en segundos
+    # mientras que un 'schedule' entra en una cola compartida y se retrasa entre
+    # 20 y 40 minutos, cuando no se descarta directamente.
+    #
+    # Esto queda cada 3 horas para que, si el servicio externo se cae, las
+    # alertas no se paren del todo: se degradan a 3 horas de latencia en vez de
+    # desaparecer. Cada 3 h y no cada hora para no gastar cuota por duplicado.
+    #
+    # El minuto es el mismo que dispara el cron externo, un par de minutos
+    # despues de que Blizzard publique el volcado de toda la region a la vez.
+    #
+    # Ese momento se mueve solo: el 2026-08-31 salia a las :31:22 y el
+    # 2026-09-02 a las :23:30. No hace falta perseguirlo a ojo, porque cada
+    # pasada mide su propio desfase y dice a que minuto conviene moverlo; cuando
+    # lo cambies ahi, cambialo tambien aqui.
+    - cron: '24 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Solo mostrar los chollos, sin avisar por Discord'
+        type: boolean
+        default: false
+
+# Si una pasada se alarga, la siguiente espera en vez de solaparse: dos
+# ejecuciones a la vez se pisarian la memoria de avisos.
+concurrency:
+  group: wow-price-monitor
+  cancel-in-progress: false
+
+jobs:
+  check-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Este repositorio es publico y la pasada no escribe en el: lo que publica
+    # va al repositorio privado, con su propio token.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v7
+        with:
+          # Sin esto, checkout deja un 'http.https://github.com/.extraheader'
+          # con el token de ESTE repositorio, y ese encabezado pisa las
+          # credenciales de la URL del repositorio privado: git responde
+          # "Repository not found" aunque el token sea correcto. La pasada ya
+          # no escribe aqui, asi que esas credenciales no hacen falta.
+          persist-credentials: false
+
+      - name: Traer lo privado
+        # Lo que no puede estar en un repositorio publico vive en uno privado,
+        # <este>-privado, y se lee con el secret PRIVADO_TOKEN:
+        #
+        # - personajes.yaml, en su 'main': el orden de tus personajes.
+        # - la rama 'subastas': lo que sube sync_subastas.py desde el PC y la
+        #   Steam Deck, que tienes a la venta, con que personajes y que has
+        #   vendido.
+        #
+        # Que falte algo no es un error: es el dia uno, o un fork sin el
+        # secret. Sin esos ficheros la pasada se limita a no vigilar tus
+        # subastas, y los chollos siguen saliendo.
+        env:
+          PRIVADO_TOKEN: ${{ secrets.PRIVADO_TOKEN }}
+        run: |
+          if [ -z "$PRIVADO_TOKEN" ]; then
+            echo "::warning::Sin el secret PRIVADO_TOKEN: sigo sin tus subastas."
+            exit 0
+          fi
+          # El token va de usuario, que es como git admite un fine-grained; con
+          # 'x-access-token:token' --lo que usa una GitHub App-- GitHub
+          # responde "Repository not found", igual que si no hubiera permiso.
+          # El tr quita el salto de linea que se cuela al pegarlo en el secret,
+          # que rompe la URL.
+          token=$(printf '%s' "$PRIVADO_TOKEN" | tr -d '[:space:]')
+          echo "::add-mask::$token"
+          privado="https://${token}@github.com/${GITHUB_REPOSITORY}-privado.git"
+
+          # Que la rama no exista es normal el dia uno; que el token no llegue
+          # al repositorio privado, no. Sin esto los dos casos se veian igual y
+          # se tardaba en dar con el fallo. El token va fuera del mensaje: en
+          # un repositorio publico los logs los lee cualquiera.
+          traer() {
+            if fallo=$(git fetch --depth=1 "$privado" "$1" 2>&1); then
+              return 0
+            fi
+            echo "::warning::No he podido leer la rama '$1' del repositorio privado: ${fallo//$token/***}"
+            return 1
+          }
+
+          if traer main; then
+            git show FETCH_HEAD:personajes.yaml > personajes.yaml 2>/dev/null \
+              && echo "Traido: personajes.yaml." \
+              || { rm -f personajes.yaml; echo "Sin personajes.yaml todavia."; }
+          fi
+
+          if traer subastas; then
+            # Una por una: que falte la de ventas no es motivo para quedarse
+            # sin las subastas, y un checkout de varias rutas falla entero si
+            # una no esta en la rama.
+            for carpeta in mis_subastas mis_personajes mis_ventas; do
+              if git checkout -q FETCH_HEAD -- "$carpeta" 2>/dev/null; then
+                echo "Traido: $carpeta."
+              else
+                echo "Sin $carpeta en la rama todavia."
+              fi
+            done
+          else
+            echo "Sigo sin tus subastas."
+          fi
+
+          # Los logs de un repositorio publico los lee cualquiera. Todo nombre
+          # de personaje tuyo sale como *** a partir de aqui, en todos los
+          # pasos. Sin PyYAML todavia: la lista es una linea '- Nombre' por
+          # personaje.
+          {
+            sed -n 's/^[[:space:]]*-[[:space:]]*\([^#[:space:]]\+\).*/\1/p' personajes.yaml 2>/dev/null || true
+            python3 - <<'PY' || true
+          import glob, json
+          for fichero in glob.glob("mis_personajes/*.json"):
+              try:
+                  with open(fichero, encoding="utf-8") as f:
+                      for personaje in json.load(f).get("characters", []):
+                          print(personaje.get("name", ""))
+              except (OSError, ValueError, AttributeError):
+                  pass
+          PY
+          } | sort -u | while read -r nombre; do
+            if [ -n "$nombre" ]; then echo "::add-mask::$nombre"; fi
+          done
+
+      - name: Instalar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Recuperar memoria de avisos anteriores
+        uses: actions/cache/restore@v6
+        with:
+          path: .state
+          # La clave lleva el id de ejecucion porque las caches de GitHub son
+          # inmutables: cada pasada guarda una nueva y restore-keys recupera la
+          # mas reciente.
+          key: wow-alerts-state-${{ github.run_id }}
+          restore-keys: |
+            wow-alerts-state-
+
+      - name: Buscar chollos
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+          # Opcionales: con ellas, la pasada mueve sola el disparo del cron
+          # cuando Blizzard cambia la hora a la que publica el volcado. Sin
+          # ellas se limita a avisar por Discord de a que minuto ponerlo.
+          CRONJOB_API_KEY: ${{ secrets.CRONJOB_API_KEY }}
+          CRONJOB_JOB_ID: ${{ secrets.CRONJOB_JOB_ID }}
+        run: python main.py ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Vigilar mis subastas
+        # Se ejecuta aunque el escaneo de chollos haya ido mal: son dos
+        # vigilancias independientes y una no debe silenciar a la otra.
+        #
+        # Undercuts y ventas van juntos a proposito, y no en pasos separados:
+        # comparten la descarga, y sobre todo el seguimiento de ventas tiene que
+        # actualizarse TODAS las horas, se venda o no, porque cada pasada afina
+        # las fechas de caducidad de las que sigue.
+        if: '!cancelled()'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_UNDERCUT_WEBHOOK_URL: ${{ secrets.DISCORD_UNDERCUT_WEBHOOK_URL }}
+          DISCORD_VENTAS_WEBHOOK_URL: ${{ secrets.DISCORD_VENTAS_WEBHOOK_URL }}
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+        run: python main.py --undercut --ventas ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Publicar datos para la app
+        # Los ficheros que lee la app del movil: el catalogo de objetos y el
+        # precio a batir en cada reino donde vendes. Van a la rama 'datos' del
+        # repositorio privado: dicen en que reinos vendes y con que personajes.
+        #
+        # Va despues de las alertas y con !cancelled() porque es lo menos
+        # urgente de la pasada: si falla, las alertas ya han salido.
+        if: '!cancelled() && !inputs.dry_run'
+        env:
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+        run: python datos_app.py --salida publicar
+
+      - name: Subir los datos de la app
+        if: "!cancelled() && !inputs.dry_run && hashFiles('publicar/**') != ''"
+        env:
+          PRIVADO_TOKEN: ${{ secrets.PRIVADO_TOKEN }}
+        run: |
+          if [ -z "$PRIVADO_TOKEN" ]; then
+            echo "::warning::Sin el secret PRIVADO_TOKEN: no publico los datos de la app."
+            exit 0
+          fi
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          cd publicar
+          git init -q
+          # El token de usuario, como en el paso que se trae lo privado.
+          token=$(printf '%s' "$PRIVADO_TOKEN" | tr -d '[:space:]')
+          echo "::add-mask::$token"
+          git remote add origin "https://${token}@github.com/${GITHUB_REPOSITORY}-privado.git"
+          # La rama puede no existir todavia, y eso no es un error.
+          git fetch --depth=1 origin datos 2>/dev/null || true
+          git checkout -B datos
+          git add -A
+          # Sin cambios no hay commit: 'commit' devolveria 1 y tumbaria el paso.
+          git diff --cached --quiet && echo "Sin cambios que publicar." && exit 0
+          git commit -q -m "Datos de la app: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push -q --force origin datos
+
+      - name: Guardar memoria de avisos
+        # Tambien cuando el escaneo va mal: lo ya avisado sigue siendo valido y
+        # no queremos repetirlo en la pasada siguiente.
+        #
+        # El hashFiles evita un aviso feo cuando no hay nada que guardar, que es
+        # lo que pasa en las pasadas con --dry-run: no escriben estado.
+        if: always() && hashFiles('.state/**') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: .state
+          key: wow-alerts-state-${{ github.run_id }}

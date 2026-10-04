@@ -1,0 +1,216 @@
+name: Anadir un objeto
+
+# Empezar a vigilar un objeto desde el movil, sin abrir config.yaml.
+#
+# Lo dispara una issue con la etiqueta 'objeto', que abren los dos caminos: la
+# app Wow Alerts y la plantilla 'Anadir un objeto'. Los dos generan el mismo
+# cuerpo, asi que aqui no hay ramas por origen.
+#
+# 'reopened' ademas de 'opened' para poder reintentar sin repetir el cambio
+# desde el movil.
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  anadir:
+    # El mismo grupo que los topes: los dos workflows editan config.yaml, y a
+    # la vez el segundo commitearia sobre una copia vieja.
+    #
+    # A nivel de job, no de workflow: el group se une al CREAR la ejecucion,
+    # antes de evaluar el 'if' de abajo. A nivel de workflow, cualquier issue
+    # --tambien las que disparan el otro workflow, tope.yml-- entraria en este
+    # grupo aunque su job vaya a saltarse, y podria cancelar una ejecucion real
+    # pendiente ("higher priority waiting request"). A nivel de job, los jobs
+    # que se saltan no se unen al grupo.
+    concurrency:
+      group: tope-config
+      cancel-in-progress: false
+    # Se mira la etiqueta O el titulo: GitHub NO aplica una etiqueta de
+    # plantilla que no exista ya en el repositorio, y sin esto el workflow no se
+    # dispararia nunca, en silencio.
+    if: >-
+      (contains(github.event.issue.labels.*.name, 'objeto') ||
+       startsWith(github.event.issue.title, 'Objeto:')) &&
+      github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v7
+        with:
+          # Sin esto, checkout se planta en la punta de main de CUANDO SE ABRIO
+          # la issue, y dos cambios seguidos desde el movil se pisan.
+          ref: main
+
+      - name: Instalar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Recuperar memoria de ids de Blizzard
+        # Sin esto, generar_vigilados.py --mas abajo-- no encuentra la cache
+        # de ids (.state/, que esta en .gitignore) y busca por nombre en
+        # Blizzard cada objeto vigilado que no tenga 'item_id' en config.yaml,
+        # asi que un solo fallo de busqueda bloquea la regeneracion entera.
+        # Reutiliza la cache que deja la pasada de cada hora (monitor.yml);
+        # esta ejecucion no la guarda, solo la lee.
+        uses: actions/cache/restore@v6
+        with:
+          path: .state
+          key: wow-alerts-state-${{ github.run_id }}
+          restore-keys: |
+            wow-alerts-state-
+
+      - name: Anadir el objeto
+        id: anadir
+        env:
+          # El cuerpo viaja por el entorno y NO interpolado dentro del script:
+          # es texto que escribe un formulario, y metido en un 'run:' seria una
+          # inyeccion de shell de manual.
+          CUERPO: ${{ github.event.issue.body }}
+          # Aqui si hacen falta, al reves que en el workflow de topes: el id del
+          # objeto lo resuelve la API de Blizzard.
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+        run: |
+          set +e
+          printf '%s' "$CUERPO" | python anadir_objeto.py > comentario.md
+          echo "codigo=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat comentario.md
+
+      - name: Regenerar el desplegable de topes
+        # Justo lo que se olvida al anadir un objeto a mano: el desplegable de
+        # topes lleva las opciones escritas dentro, y tiene un test que falla
+        # si se queda atras. No necesita credenciales de Blizzard.
+        id: topes_form
+        if: steps.anadir.outputs.codigo == '0'
+        # Sin 'shell: bash' el paso corre como 'bash -e {0}', SIN pipefail: el
+        # codigo de salida de la tuberia seria el de 'tee' (siempre 0), y un
+        # fallo del script se pasaria por bueno. 'shell: bash' lo ejecuta con
+        # '-eo pipefail'.
+        shell: bash
+        run: python topes_form.py 2>&1 | tee -a regenerar.log
+
+      - name: Regenerar lo que vigila el addon
+        # El addon necesita saber que objetos repostea, y tambien tiene un
+        # test que falla si se queda atras. Este si resuelve ids contra
+        # Blizzard, de ahi las credenciales.
+        id: generar_vigilados
+        if: steps.anadir.outputs.codigo == '0'
+        shell: bash
+        env:
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+        run: python generar_vigilados.py 2>&1 | tee -a regenerar.log
+
+      - name: Commitear los cambios
+        id: commit
+        if: steps.anadir.outputs.codigo == '0'
+        env:
+          # Por el entorno, como el cuerpo: el titulo tambien lo escribe quien
+          # abre la issue, y dentro del script seria inyeccion de shell.
+          TITULO: ${{ github.event.issue.title }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add config.yaml .github/ISSUE_TEMPLATE/tope.yml addon/WowAlertsExport/Vigilados.lua
+          if git diff --cached --quiet; then
+            echo "" >> comentario.md
+            echo "No ha quedado ningun cambio que commitear." >> comentario.md
+            exit 1
+          fi
+          # El titulo ya viene con el prefijo "Objeto:" desde la plantilla y
+          # desde la app, asi que anadirlo aqui lo duplicaria.
+          git commit -q -m "$TITULO"
+          # Otro push a main --un cambio de tope, o uno tuyo desde el PC--
+          # puede colarse entre el checkout y esto.
+          for intento in 1 2 3; do
+            git push -q && break
+            echo "Push rechazado (intento $intento). Rebaso y lo repito."
+            git pull -q --rebase origin main
+          done
+          git push -q
+          echo "" >> comentario.md
+          echo "Commit \`$(git rev-parse --short HEAD)\` en \`main\`." >> comentario.md
+
+      - name: Responder en la issue
+        # Tambien cuando ha fallado: el comentario es justamente lo que te dice
+        # por que, y sin el te quedas con una issue muda.
+        if: always() && steps.anadir.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.issue.number }}
+          # Por el entorno y no interpolados dentro del run, igual que CUERPO y
+          # TITULO mas arriba: son valores que no ha escrito este script.
+          CODIGO: ${{ steps.anadir.outputs.codigo }}
+          COMMIT: ${{ steps.commit.outcome }}
+          TOPES_FORM: ${{ steps.topes_form.outcome }}
+          VIGILADOS: ${{ steps.generar_vigilados.outcome }}
+        run: |
+          # Si comentario.md ha quedado vacio o no existe --Python fallando
+          # antes de imprimir nada-- un comentario en blanco seria peor que uno
+          # generico.
+          if [ ! -s comentario.md ]; then
+            echo "❌ **No he anadido nada.** El script ha fallado sin explicar por que; mira el log del workflow." > comentario.md
+          fi
+          # anadir_objeto.py acerto (CODIGO=0), pero algo de despues ha fallado
+          # --regenerar los ficheros o subir el commit-- y sin esto el
+          # "Objeto anadido" que ya trae comentario.md se publicaria igual,
+          # dando por guardado lo que no se guardo.
+          if [ "$CODIGO" = "0" ] && [ "$COMMIT" != "success" ]; then
+            {
+              echo "❌ **No se ha guardado nada.** El objeto era valido, pero ha fallado despues (regenerar los ficheros o subir el commit). La issue se queda abierta: cierrala y reabrela para reintentar."
+              echo ""
+              cat comentario.md
+            } > comentario.tmp
+            mv comentario.tmp comentario.md
+            # Solo si de verdad ha fallado una regeneracion: tras un fallo de
+            # push/rebase, el log solo tiene regeneraciones que salieron bien
+            # y adjuntarlo apuntaria al sitio equivocado.
+            if [ "$TOPES_FORM" = "failure" ] || [ "$VIGILADOS" = "failure" ]; then
+              if [ -s regenerar.log ]; then
+                {
+                  echo ""
+                  echo '```'
+                  tail -n 20 regenerar.log
+                  echo '```'
+                } >> comentario.md
+              fi
+            fi
+          fi
+          gh issue comment "$NUMERO" --body-file comentario.md
+          # Si ha ido mal, la issue se queda ABIERTA: es lo que te deja corregir
+          # sin volver a empezar. Tambien si el cambio se aplico pero no se pudo
+          # subir: cerrarla ahi diria que esta hecho cuando el objeto se perdio.
+          if [ "$CODIGO" = "0" ] && [ "$COMMIT" = "success" ]; then
+            gh issue close "$NUMERO"
+          fi
+
+  rechazar:
+    # Una issue con la etiqueta pero abierta por otro. No deberia pasar en un
+    # repositorio privado, pero callarse seria peor que decirlo.
+    if: >-
+      (contains(github.event.issue.labels.*.name, 'objeto') ||
+       startsWith(github.event.issue.title, 'Objeto:')) &&
+      github.event.issue.user.login != github.repository_owner
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.issue.number }}
+        run: |
+          gh issue close "$NUMERO" --repo "$GITHUB_REPOSITORY" \
+            --comment "Solo el dueno del repositorio puede anadir objetos. No he tocado config.yaml."

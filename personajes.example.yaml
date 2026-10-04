@@ -1,0 +1,15 @@
+# Orden en el que quieres leer los avisos, por nombre de personaje. Es el orden
+# en que los tienes en el selector, que no se puede deducir de ningun fichero:
+# si lo reordenas arrastrando, ese orden vive en el servidor de Blizzard.
+#
+# Los personajes que no aparezcan aqui salen detras, por cuenta y reino. Para
+# cambiar el orden basta con mover lineas.
+#
+# Copialo a personajes.yaml (esta en .gitignore) y pon tus nombres. En Actions
+# el workflow lo trae del repositorio privado <este-repo>-privado.
+orden_personajes:
+  # --- WoW 1
+  - Personaje1
+  - Personaje2
+  # --- WoW 2
+  - Personaje3

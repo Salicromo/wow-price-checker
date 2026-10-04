@@ -1,0 +1,68 @@
+# ============================================================================
+#  Anadir un objeto vigilado
+# ----------------------------------------------------------------------------
+#  El camino normal es el boton de la app, que genera este mismo cuerpo. Esta
+#  plantilla existe para cuando la app no esta a mano.
+#
+#  Las etiquetas de los campos son el contrato con anadir_objeto.py, que es
+#  quien lee el cuerpo de la issue. Si cambias una, cambiala tambien alli y en
+#  Objetos.kt.
+# ============================================================================
+
+name: Anadir un objeto
+description: Empieza a vigilar un objeto, o anade ilvl nuevos a uno que ya vigilas.
+title: "Objeto: "
+labels: [objeto]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Para algo recien salido, pega el **enlace de Wowhead**: no depende de
+        escribir bien el nombre en ingles.
+
+        Si la pieza **ya** la vigilas, los ilvl que escribas se anaden a su
+        tabla; los que ya tenia no se tocan. Es lo que toca en cada temporada.
+
+        Las mascotas y las monturas se siguen anadiendo a mano en `config.yaml`.
+
+  - type: input
+    id: objeto
+    attributes:
+      label: Objeto
+      description: El enlace de Wowhead, el id, o el nombre exacto en ingles.
+      placeholder: "https://www.wowhead.com/item=258126"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tipo
+    attributes:
+      label: Tipo
+      options:
+        - "Equipo (tabla por ilvl)"
+        - "Patron o receta (precio unico)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: topes
+    attributes:
+      label: Topes por ilvl
+      description: >-
+        Solo para equipo: un ilvl y su tope en oro por linea. Los ilvl que sean,
+        los de la temporada que acaba de salir.
+      placeholder: |
+        368: 20000
+        376: 50000
+        382: 150000
+    validations:
+      required: false
+
+  - type: input
+    id: tope
+    attributes:
+      label: Tope, en oro
+      description: "Solo para patrones y recetas."
+      placeholder: "40000"
+    validations:
+      required: false

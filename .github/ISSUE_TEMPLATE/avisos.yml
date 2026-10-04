@@ -1,0 +1,20 @@
+name: Pausar o reanudar avisos
+description: Para o vuelve a encender el envio de avisos a Discord.
+title: "Avisos: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        En pausa se sigue vigilando cada hora, pero no se manda nada a
+        Discord. Al reanudar te llega lo que siga vigente. Es lo mismo que
+        el interruptor de la app.
+
+  - type: dropdown
+    id: avisos
+    attributes:
+      label: Avisos
+      options:
+        - "Pausar"
+        - "Reanudar"
+    validations:
+      required: true

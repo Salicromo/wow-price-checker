@@ -1,0 +1,24 @@
+[Unit]
+Description=Lanza publicar-web.service cada hora
+
+[Timer]
+# A diferencia del cron externo del vigilante (README.md, apartado 3.1), que
+# persigue el minuto exacto en que Blizzard publica porque una oferta solo
+# dura minutos y llegar tarde significa perdersela, a la web publica le da
+# igual quedarse unos minutos por detras: nadie nota si la pagina se pone al
+# dia a la hora en punto o cinco minutos despues. Por eso aqui no hay caza de
+# minuto ni segundo cron externo -- basta un OnCalendar de systemd.
+OnCalendar=hourly
+
+# Reparte el arranque en una ventana de 5 minutos en vez de disparar siempre
+# en el segundo 0 de la hora. No cambia nada para esta pasada en concreto,
+# pero evita que coincida siempre con cualquier otro cron del sistema que
+# tambien use "hourly" (logrotate, certbot renew, etc.).
+RandomizedDelaySec=300
+
+# Si el VPS estaba apagado o el servicio caido cuando tocaba disparar, lanza
+# la pasada pendiente en cuanto vuelve en vez de esperar a la hora siguiente.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

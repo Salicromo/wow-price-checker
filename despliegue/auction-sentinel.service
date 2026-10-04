@@ -1,0 +1,46 @@
+[Unit]
+Description=Auction Sentinel - web publica de precios (uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=sentinel
+Group=sentinel
+WorkingDirectory=/opt/auction-sentinel
+EnvironmentFile=/opt/auction-sentinel/.env
+
+# Dos workers, no mas. La pagina mas cara que sirve esta app es la de reino
+# (~27 ms, el JOIN de productos_de_reino contra el catalogo entero); la de
+# producto es casi gratis (~0.03 ms). Con eso un solo proceso ya aguanta un
+# trafico modesto de sobra, y el segundo worker es solo para que una peticion
+# lenta no bloquee a las demas mientras se atiende. No hace falta mas: SQLite
+# solo admite un escritor a la vez y aqui nadie escribe -- la pasada horaria
+# escribe aparte, con publicar_web.py, en su propio proceso -- asi que sumar
+# workers no compra mas capacidad de escritura, solo mas lectores en
+# paralelo. Si el CPU del VPS va sobrado y el trafico crece, subir este
+# numero es seguro: cada worker abre sus propias conexiones SQLite en modo
+# WAL, que admite muchos lectores a la vez.
+# uvicorn no puede pasarle argumentos a la app, asi que la base la dice
+# AUCTION_DB desde el EnvironmentFile de arriba -- la misma variable que usa la
+# pasada. Al arrancar, el log dice que fichero ha abierto y cuantas filas
+# tiene: si esta vacia se ve en la primera linea, no en forma de 404.
+ExecStart=/opt/auction-sentinel/.venv/bin/uvicorn web.app:app --host 127.0.0.1 --port 8000 --workers 2
+
+Restart=always
+RestartSec=5
+
+# No hace falta psutil ni nada especial para tumbar el proceso con cuidado:
+# uvicorn ya atiende SIGTERM cerrando las conexiones en marcha antes de
+# salir. Sin esto, un `systemctl restart` cortaria peticiones a medias.
+TimeoutStopSec=10
+
+# Aislamiento minimo razonable para un servicio que solo lee. No se usa
+# ProtectSystem=strict porque uvicorn necesita escribir en /run o similar
+# para nada critico, pero si negamos explicitamente lo que no necesita:
+# no toca dispositivos ni hace falta que sea root en ningun momento (User=
+# ya lo impide, esto es una capa mas).
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

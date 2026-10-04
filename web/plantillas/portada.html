@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block titulo %}Auction Sentinel — EU auction house prices{% endblock %}
+{% block descripcion %}Where each item is cheapest across the EU auction
+houses, and what is going for less than usual on every realm. Updated
+hourly.{% endblock %}
+
+{% block contenido %}
+<main class="ficha">
+  <h1>EU auction house prices</h1>
+  <p class="aviso">
+    Where an item is cheapest across the region, and what is currently going
+    for less than it normally does on each realm.
+    {% if generado %}Prices as of {{ generado }}.{% endif %}
+  </p>
+
+  <section class="baldosas">
+    <div class="baldosa">
+      <span class="et">Items tracked</span>
+      <span class="val">{{ "{:,}".format(resumen.productos) }}</span>
+    </div>
+    <div class="baldosa">
+      <span class="et">Realms covered</span>
+      <span class="val">{{ resumen.reinos }}</span>
+    </div>
+    <div class="baldosa">
+      <span class="et">Biggest discount</span>
+      {# Sale de la primera fila de la tabla, que ya viene ordenada por
+         descuento: es el mismo dato dicho como titular, no otra consulta. #}
+      <span class="val {% if rebajas %}barato{% endif %}">
+        {%- if rebajas -%}{{ rebajas[0].descuento }}% off{%- else -%}—{%- endif -%}
+      </span>
+    </div>
+  </section>
+
+  <p class="et">Biggest discounts right now</p>
+  {% if rebajas %}
+  <div class="tabla">
+  <table>
+    <thead>
+      <tr>
+        <th class="txt">Item</th><th class="txt reino-col">Realm</th>
+        <th class="opcional">Normally</th><th>Now</th><th>Off</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rebajas %}
+      {% set producto_id, nombre, icono, variante, reino, calidad = r.producto_id, r.nombre, r.icono, r.variante, r.reino, r.calidad %}
+      <tr>
+        <td class="txt">
+          {% include "_objeto.html" with context %}
+        </td>
+        <td class="txt reino-col"><a href="/realm/{{ r.slug }}">{{ r.reino }}</a></td>
+        <td class="opcional">{{ r.mediana | oro }}g</td>
+        <td>{{ r.minimo | oro }}g</td>
+        <td class="pct">{{ r.descuento }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  {# Pasa de verdad, y no solo con la base vacía: hace falta que un objeto
+     esté en al menos quince reinos (REINOS_PARA_COMPARAR) para que su
+     mediana signifique algo, y hasta la primera pasada completa no lo está
+     ninguno. Sin esto quedaba una tabla con cabeceras y cero filas bajo un
+     titular que promete gangas. #}
+  <p class="vacio">
+    No discounts to show yet. This fills in once the hourly pass has enough
+    realms to tell a bargain from a normal price.
+  </p>
+  {% endif %}
+
+  {# Recién instalada nadie ha pedido ninguna ficha todavía, así que la
+     sección entera desaparece en vez de dejar un título sobre el vacío. #}
+  {% if vistos %}
+  <p class="et">Most looked up</p>
+  <div class="pastillas">
+    {% for p in vistos %}
+    <a class="pastilla" href="/item/{{ p.producto_id }}">
+      {%- if p.icono %}<img class="icono" src="{{ p.icono }}" alt="" width="20" height="20" loading="lazy">{% endif -%}
+      <span>{{ p.nombre or "#" ~ p.producto_id }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <p class="et">Realms</p>
+  {% if reinos %}
+  <div class="pastillas">
+    {% for r in reinos %}
+    <a class="pastilla" href="/realm/{{ r.slug }}">{{ r.nombre }}</a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="vacio">
+    No prices yet. This page fills in once the first hourly pass finishes.
+  </p>
+  {% endif %}
+</main>
+{% endblock %}

@@ -1,0 +1,51 @@
+# ============================================================================
+#  Ajustar un tope, viniendo de un aviso de Discord
+# ----------------------------------------------------------------------------
+#  Los campos son de texto y no desplegables A PROPOSITO: GitHub solo sabe
+#  prerrellenar por URL los tipos 'input' y 'textarea', nunca un 'dropdown'.
+#  Como el enlace del aviso trae ya el objeto y el ilvl, aqui lo unico que se
+#  teclea es el numero.
+#
+#  Los ids de abajo son los que lleva esa URL (?objeto=...&ilvl=...): si los
+#  cambias, deja de prerrellenarse. Las etiquetas son el contrato con
+#  aplicar_tope.py, que es quien lee el cuerpo de la issue.
+#
+#  Para abrirlo a mano, usa la otra plantilla: tiene desplegables y no hay que
+#  escribir el nombre en ingles.
+# ============================================================================
+
+name: Ajustar un tope (desde un aviso)
+description: Cambia el tope de un objeto viniendo del enlace de un aviso.
+title: "Tope: "
+labels: [tope]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Objeto e ilvl vienen puestos desde el aviso. Escribe solo el tope nuevo.
+
+  - type: input
+    id: objeto
+    attributes:
+      label: Objeto
+      description: El nombre en ingles, igual que en `config.yaml`.
+    validations:
+      required: true
+
+  - type: input
+    id: ilvl
+    attributes:
+      label: ilvl
+      description: >-
+        Dejalo en blanco para patrones, monturas y mascotas, que no escalan y
+        llevan un precio unico.
+    validations:
+      required: false
+
+  - type: input
+    id: tope
+    attributes:
+      label: Tope nuevo, en oro
+      placeholder: "4000"
+    validations:
+      required: true

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Auction Sentinel{% endblock %}</title>
+  <meta name="description" content="{% block descripcion %}{% endblock %}">
+
+  {% if canonical %}
+  <link rel="canonical" href="{{ BASE_URL }}{{ canonical }}">
+  {% endif %}
+  {% if noindex %}
+  <meta name="robots" content="noindex,follow">
+  {% endif %}
+
+  <meta property="og:site_name" content="Auction Sentinel">
+  <meta property="og:type" content="website">
+  {# `self.titulo()` vuelve a pintar el bloque de arriba: asi el titulo de la
+     pestana y el de la tarjeta no pueden discrepar, se escriben una vez. #}
+  <meta property="og:title" content="{{ self.titulo() }}">
+  <meta property="og:description" content="{{ self.descripcion() }}">
+  {% if canonical %}
+  <meta property="og:url" content="{{ BASE_URL }}{{ canonical }}">
+  {% endif %}
+  {# Sin imagen no se pinta la etiqueta: un `og:image` vacio hace que algunos
+     clientes enseñen un hueco roto en vez de una tarjeta solo de texto. #}
+  {# Sin imagen no se pinta la etiqueta: un `og:image` vacio hace que algunos
+     clientes ensenen un hueco roto en vez de una tarjeta solo de texto. #}
+  {% if og_imagen %}
+  <meta property="og:image" content="{{ og_imagen }}">
+  {% endif %}
+  {# "summary" y no "summary_large_image": los iconos de Blizzard son de 56px y
+     una tarjeta grande los estiraria hasta el borron. #}
+  <meta name="twitter:card" content="summary">
+
+  <link rel="stylesheet" href="/estaticos/estilo.css">
+</head>
+<body>
+  <nav class="nav">
+    <a class="marca" href="/">AUCTION SENTINEL</a>
+    {# GET y no POST a proposito: asi cada busqueda es una URL que se puede
+       compartir, marcar y --si algun dia interesa-- indexar. #}
+    <form class="buscar" action="/search" method="get" role="search">
+      {# `role="combobox"` y sus tres `aria-` son lo que hace que un lector de
+         pantalla anuncie las sugerencias; sin ellos la lista existe pero solo
+         para quien la ve. `autocomplete="off"` es para el del navegador, que
+         taparia la nuestra con su propio historial. #}
+      <input type="search" name="q" placeholder="Search items"
+             aria-label="Search items" value="{{ q or '' }}"
+             role="combobox" autocomplete="off"
+             aria-autocomplete="list" aria-expanded="false"
+             aria-controls="sugerencias">
+      {# Vacia y `hidden`: la rellena `interfaz.js`. Sin JavaScript no aparece
+         y el formulario sigue siendo el GET a /search de siempre. #}
+      <ul class="sugerencias" id="sugerencias" role="listbox"
+          aria-label="Suggestions" hidden></ul>
+    </form>
+    {# El menu con el que se elige que objetos ver. Antes era un enlace a
+       /items, o sea otra pagina cuyo unico contenido es elegir: habia que
+       salir de donde estabas para poder filtrar. Ahora se despliega encima.
+
+       Mismo `<details>` que los filtros de categoria, y por eso comparte
+       clase: `interfaz.js` ya sabe cerrarlos al pulsar fuera, y sin
+       JavaScript se abre igual. #}
+    <details class="desplegable menu-nav">
+      <summary>Categories</summary>
+      <div class="menu">
+        {% for c in menu %}
+        <a class="op" href="/items/{{ c.clase_slug }}">
+          {{ c.clase }} <span class="cuenta">{{ "{:,}".format(c.objetos) }}</span>
+        </a>
+        {% endfor %}
+        {# /items sigue existiendo: de esa pagina cuelga el catalogo entero
+           para Googlebot. Lo que se quita es la obligacion de pasar por ella. #}
+        <a class="op op-indice" href="/items">All items</a>
+      </div>
+    </details>
+  </nav>
+  {% block contenido %}{% endblock %}
+  <footer class="pie">
+    Prices from the EU auction house, refreshed hourly.
+    Not affiliated with Blizzard Entertainment.
+  </footer>
+  {# `defer` y al final: la pagina se pinta y se lee sin esperar al script,
+     que solo anade el autocompletar y el cierre de los desplegables. #}
+  <script src="/estaticos/interfaz.js" defer></script>
+</body>
+</html>

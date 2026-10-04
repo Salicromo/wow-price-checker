@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block titulo %}Browse all items — EU auction house prices{% endblock %}
+{% block descripcion %}Every item on the EU auction house by category: weapons,
+armor, recipes, consumables and more, with what each one costs.{% endblock %}
+
+{% block contenido %}
+<main class="ficha">
+  <h1>Browse all items</h1>
+  <p class="aviso">
+    {{ "{:,}".format(total) }} items currently on the EU auction house,
+    by category.
+  </p>
+
+  <div class="tarjetas">
+    {% for c in categorias %}
+    <a class="tarjeta" href="/items/{{ c.clase_slug }}">
+      <span class="tarjeta-n">{{ c.clase }}</span>
+      <span class="et">{{ "{:,}".format(c.objetos) }} items</span>
+    </a>
+    {% endfor %}
+  </div>
+</main>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block titulo %}{% if q %}{{ q }} — search{% else %}Search{% endif %} — EU auction house prices{% endblock %}
+{% block descripcion %}Search the EU auction house by item name.{% endblock %}
+
+{% block contenido %}
+<main class="ficha">
+  <h1>{% if q %}"{{ q }}"{% else %}Search{% endif %}</h1>
+
+  {% if q and productos %}
+  <p class="aviso">{{ productos | length }} result{{ "" if productos | length == 1 else "s" }}.</p>
+  <div class="tabla">
+  <table>
+    <thead><tr><th class="txt">Item</th><th>From</th></tr></thead>
+    <tbody>
+      {% for p in productos %}
+      <tr>
+        <td class="txt">
+          {% set producto_id, nombre, icono, variante, reino, calidad = p.producto_id, p.nombre, p.icono, -1, None, p.calidad %}
+          {% include "_objeto.html" with context %}
+        </td>
+        <td>{{ p.desde | oro }}g</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% elif q %}
+  <p class="vacio">
+    Nothing on the auction house matches "{{ q }}" right now.
+    <a href="/items">Browse by category</a> instead.
+  </p>
+  {% else %}
+  <p class="vacio">Type an item name above.</p>
+  {% endif %}
+</main>
+{% endblock %}
