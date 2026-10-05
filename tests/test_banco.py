@@ -401,7 +401,7 @@ def test_al_leer_el_banco_lo_deja_en_json_para_las_otras_cuentas():
     banco = json.loads(lua.globals().WowAlertsExportDB.bancoJSON)
     assert banco[CLAVE]["en"] == 1756500000
     assert banco[CLAVE]["copias"] == {f"{MANTO}:308": 1}
-    assert banco[CLAVE]["ilvls"] == {"1:3": {"itemID": MANTO, "ilvl": 308}}
+    assert banco[CLAVE]["ilvls"] == {"1:3": {"itemID": MANTO, "ilvl": 308, "en": 1756500000}}
 
 
 OTRA_CUENTA = """
@@ -431,3 +431,63 @@ def test_lo_que_trae_otra_cuenta_no_pisa_algo_mas_nuevo():
 
     assert copias(lua) == 1
     assert copias(lua, MANTO, 308) == 0
+
+
+# Cada cuenta apunta lo que mete ella. Si otra cuenta abre el banco despues, su
+# copia es mas nueva pero no sabe lo que metio esta: el ilvl se junta hueco a
+# hueco, quedandose con lo apuntado mas tarde, para que no se pierda.
+
+def mi_cuenta_y_otra(mios, de_otra, en_otra=1756500000):
+    return """
+WowAlertsExportDB = {
+    ilvlBancoHermandad = { ["Los Ricos-Sanguino"] = %s },
+    bancoHermandad = { ["Los Ricos-Sanguino"] = { en = 1, copias = {} } },
+    bancoDeOtraCuenta = { ["Los Ricos-Sanguino"] = {
+        en = %d, copias = {}, ilvls = %s,
+    } },
+}
+""" % (mios, en_otra, de_otra)
+
+
+def test_lo_de_otra_cuenta_mas_nueva_no_borra_lo_que_apunto_esta():
+    lua = runtime(mi_cuenta_y_otra(
+        '{ ["1:5"] = { itemID = 271440, ilvl = 311, en = 100 } }',
+        '{ ["1:3"] = { itemID = 271434, ilvl = 308, en = 200 } }',
+    ))
+    con_banco(lua, {1: {3: del_banco(), 5: del_banco(GREBAS)}})
+
+    assert ilvl(lua, 1, 5) == 311
+    assert ilvl(lua, 1, 3) == 308
+
+
+@pytest.mark.parametrize("mio_en, otro_en, queda", [(200, 100, 305), (100, 200, 308)])
+def test_en_el_mismo_hueco_gana_lo_apuntado_mas_tarde(mio_en, otro_en, queda):
+    lua = runtime(mi_cuenta_y_otra(
+        '{ ["1:3"] = { itemID = 271434, ilvl = 305, en = %d } }' % mio_en,
+        '{ ["1:3"] = { itemID = 271434, ilvl = 308, en = %d } }' % otro_en,
+    ))
+    con_banco(lua, {1: {3: del_banco()}})
+
+    assert ilvl(lua, 1, 3) == queda
+
+
+def test_que_otra_cuenta_viera_vaciarse_el_hueco_despues_lo_olvida():
+    lua = runtime(mi_cuenta_y_otra(
+        '{ ["1:3"] = { itemID = 271434, ilvl = 308, en = 100 } }',
+        '{ ["1:3"] = { en = 200 } }',
+    ))
+    con_banco(lua, {1: {3: del_banco()}})
+
+    assert ilvl(lua, 1, 3) is None
+
+
+def test_lo_que_sale_del_banco_se_apunta_con_la_hora_para_las_otras_cuentas():
+    lua = runtime()
+    con_bolsa(lua, {1: en_bolsa()})
+    abrir_banco(lua)
+    meter_con_clic_derecho(lua, {1: {3: del_banco()}})
+    lua.globals().time = lua.eval("function() return 1756500099 end")
+    cambia(lua, {})
+
+    banco = json.loads(lua.globals().WowAlertsExportDB.bancoJSON)
+    assert banco[CLAVE]["ilvls"] == {"1:3": {"en": 1756500099}}

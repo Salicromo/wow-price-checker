@@ -41,7 +41,10 @@ end
 
 -- WoW guarda esto por cuenta de WoW y una cuenta no ve lo de otra. Asi que se
 -- deja en JSON en bancoJSON, y la sincronizacion trae a bancoDeOtraCuenta lo
--- mas nuevo de las demas (ver wowalerts/banco.py).
+-- mas nuevo de las demas (ver wowalerts/banco.py). El ilvl de cada hueco lleva
+-- la hora a la que se apunto (en), y lo que se olvida queda como { en } sin
+-- ilvl: asi se juntan hueco a hueco y lo que apunto una cuenta no lo borra
+-- otra que abrio el banco despues sin saberlo.
 local function exportar()
     local db = WowAlertsExportDB
     local banco = {}
@@ -55,7 +58,17 @@ local function exportar()
     db.bancoJSON = WowAlertsJSON(banco)
 end
 
--- Se queda con lo de otra cuenta si es mas nuevo que lo de esta.
+-- Junta lo apuntado de otra cuenta con lo de esta: en cada hueco, lo mas tarde.
+local function juntarIlvls(mios, suyos)
+    for k, a in pairs(suyos or {}) do
+        if type(a) == "table" and (not mios[k] or (a.en or 0) > (mios[k].en or 0)) then
+            mios[k] = a
+        end
+    end
+end
+
+-- Se queda con el recuento de otra cuenta si es mas nuevo que el de esta, y
+-- con los ilvl que esta no supiera.
 local function importar()
     local db = WowAlertsExportDB
     local otra = db.bancoDeOtraCuenta
@@ -69,8 +82,9 @@ local function importar()
         local mio = db.bancoHermandad[clave]
         if not mio or (mio.en or 0) < (b.en or 0) then
             db.bancoHermandad[clave] = { copias = b.copias or {}, en = b.en }
-            db.ilvlBancoHermandad[clave] = b.ilvls or {}
         end
+        db.ilvlBancoHermandad[clave] = db.ilvlBancoHermandad[clave] or {}
+        juntarIlvls(db.ilvlBancoHermandad[clave], b.ilvls)
     end
     exportar()
 end
@@ -84,7 +98,7 @@ local function apuntado()
     return WowAlertsExportDB.bancoHermandad
 end
 
--- El ilvl de verdad de cada hueco, "pestana:hueco" -> { itemID, ilvl }.
+-- El ilvl de verdad de cada hueco, "pestana:hueco" -> { itemID, ilvl, en }.
 local function ilvlsApuntados(clave)
     WowAlertsExportDB = WowAlertsExportDB or {}
     importar()
@@ -129,22 +143,23 @@ local function seguir(clave, ahora)
         return
     end
     local apuntados = ilvlsApuntados(clave)
+    local en = time()
     local sueltos = {}
     for k, itemID in pairs(vistos) do
         local a = apuntados[k]
         if ahora[k] ~= itemID and a and a.itemID == itemID then
             sueltos[itemID] = sueltos[itemID] or {}
             table.insert(sueltos[itemID], a.ilvl)
-            apuntados[k] = nil
+            apuntados[k] = { en = en }
         end
     end
     for k, itemID in pairs(ahora) do
         if vistos[k] ~= itemID then
             local ilvl = (sueltos[itemID] and table.remove(sueltos[itemID])) or sacarCogido(itemID)
             if ilvl then
-                apuntados[k] = { itemID = itemID, ilvl = ilvl }
-            elseif apuntados[k] and apuntados[k].itemID ~= itemID then
-                apuntados[k] = nil
+                apuntados[k] = { itemID = itemID, ilvl = ilvl, en = en }
+            elseif apuntados[k] and apuntados[k].itemID and apuntados[k].itemID ~= itemID then
+                apuntados[k] = { en = en }
             end
         end
     end

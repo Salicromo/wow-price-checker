@@ -104,3 +104,22 @@ def test_el_addon_entiende_lo_que_se_le_deja(tmp_path):
     addon.con_banco(lua, {1: {3: addon.del_banco()}})
     assert addon.copias(lua, 271434, 308) == 1
     assert addon.ilvl(lua, 1, 3) == 308
+
+
+def test_junta_los_ilvl_de_todas_las_cuentas_hueco_a_hueco(tmp_path):
+    manto = {"itemID": 271434, "ilvl": 308, "en": 5}
+    grebas = {"itemID": 271440, "ilvl": 311, "en": 6}
+    viejo = {"itemID": 271434, "ilvl": 305, "en": 1}
+    vieja, nueva = cuentas(
+        tmp_path,
+        volcado(banco(1, ilvls={"1:3": manto, "1:4": viejo})),
+        volcado(banco(9, ilvls={"1:4": grebas})),
+    )
+
+    assert compartir_banco([vieja, nueva]) == [vieja, nueva]
+    juntos = {"1:3": manto, "1:4": grebas}
+    for f in (vieja, nueva):
+        pendiente = leer(f).split('["bancoDeOtraCuenta"] = ')[1].split("\n")[0]
+        assert '["en"] = 9' in pendiente
+        assert pendiente.count('["itemID"]') == 2
+        assert '["ilvl"] = 305' not in pendiente

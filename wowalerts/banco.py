@@ -7,6 +7,11 @@ bancoJSON; aqui se busca lo mas nuevo de cada hermandad y se deja en
 bancoDeOtraCuenta a las cuentas que lo tienen mas viejo. El addon lo recoge al
 entrar y lo borra, asi que WoW nunca lo vuelve a escribir.
 
+El ilvl de cada hueco lo apunta la cuenta que mete el objeto, y otra que abra
+el banco despues tiene un recuento mas nuevo pero no lo sabe. Por eso los ilvl
+no van con lo mas nuevo: se juntan los de todas, hueco a hueco, quedandose con
+lo apuntado mas tarde, y se dejan a las cuentas a las que les falte algo.
+
 Si la cuenta a la que se le deja esta jugando, WoW pisa el fichero al salir y
 se pierde; pero ese guardado vuelve a disparar la sincronizacion y se deja otra
 vez.
@@ -75,6 +80,24 @@ def con_pendiente(texto: str, pendiente: dict[str, dict]) -> str:
     return texto[: match.end()] + linea + texto[match.end() :]
 
 
+def _ilvls(b: dict) -> dict[str, dict]:
+    """Los ilvl apuntados. Sin ninguno, el addon los escribe como lista vacia."""
+    ilvls = b.get("ilvls")
+    return ilvls if isinstance(ilvls, dict) else {}
+
+
+def _juntar_ilvls(bancos: Iterable[dict]) -> dict[str, dict]:
+    """Los ilvl de todas las cuentas: en cada hueco, lo apuntado mas tarde."""
+    juntos: dict[str, dict] = {}
+    for b in bancos:
+        for hueco, a in _ilvls(b).items():
+            if isinstance(a, dict) and (
+                hueco not in juntos or a.get("en", 0) > juntos[hueco].get("en", 0)
+            ):
+                juntos[hueco] = a
+    return juntos
+
+
 def compartir_banco(ficheros: Iterable[Path]) -> list[Path]:
     """Deja en cada cuenta lo mas nuevo de las demas. Devuelve las que ha tocado."""
     textos: dict[Path, str] = {}
@@ -92,6 +115,13 @@ def compartir_banco(ficheros: Iterable[Path]) -> list[Path]:
         for clave, b in banco.items():
             if clave not in mas_nuevo or b["en"] > mas_nuevo[clave]["en"]:
                 mas_nuevo[clave] = b
+    mas_nuevo = {
+        clave: {
+            **b,
+            "ilvls": _juntar_ilvls(banco[clave] for banco in bancos.values() if clave in banco),
+        }
+        for clave, b in mas_nuevo.items()
+    }
 
     tocados = []
     for fichero, texto in textos.items():
@@ -99,7 +129,9 @@ def compartir_banco(ficheros: Iterable[Path]) -> list[Path]:
         pendiente = {
             clave: b
             for clave, b in mas_nuevo.items()
-            if clave not in propio or propio[clave]["en"] < b["en"]
+            if clave not in propio
+            or propio[clave]["en"] < b["en"]
+            or _ilvls(propio[clave]) != b["ilvls"]
         }
         nuevo = con_pendiente(texto, pendiente)
         if nuevo != texto:
