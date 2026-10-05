@@ -281,8 +281,11 @@ object Repositorio {
             }
             if (codigo == 404) {
                 throw IllegalStateException(
+                    // Con un repositorio privado, GitHub responde 404 y no 403
+                    // cuando el token no llega a el: no delata que existe.
                     "GitHub no encuentra $url. Revisa el usuario y el nombre del " +
-                        "repositorio en los ajustes."
+                        "repositorio en los ajustes, y que el token tenga acceso " +
+                        "a ese repositorio (si es privado, GitHub da 404 en vez de 403)."
                 )
             }
             if (codigo !in 200..299) {
