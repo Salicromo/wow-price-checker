@@ -5,7 +5,8 @@ juego una cuenta no puede leer los de otra: sin esto habria que abrir el banco
 con un personaje de cada cuenta. El addon deja lo que sabe del banco en
 bancoJSON; aqui se busca lo mas nuevo de cada hermandad y se deja en
 bancoDeOtraCuenta a las cuentas que lo tienen mas viejo. El addon lo recoge al
-entrar y lo borra, asi que WoW nunca lo vuelve a escribir.
+mirar el banco y lo borra; si no llega a mirarlo, WoW lo vuelve a escribir a
+su manera y aqui se cambia igual.
 
 El ilvl de cada hueco lo apunta la cuenta que mete el objeto, y otra que abra
 el banco despues tiene un recuento mas nuevo pero no lo sabe. Por eso los ilvl
@@ -27,9 +28,10 @@ from typing import Any, Iterable
 from wowalerts.misubastas import MisSubastasError, leer_cadena_lua
 
 BANCO_RE = re.compile(r'\["bancoJSON"\]\s*=\s*"')
-# Se escribe siempre en una sola linea, y el addon lo borra al leerlo antes de
-# que WoW pueda reescribirlo a su manera: con esto basta para encontrarlo.
-PENDIENTE_RE = re.compile(r'^\["bancoDeOtraCuenta"\] = .*\r?\n', re.MULTILINE)
+# Se escribe en una sola linea, pero el addon solo lo lee al mirar el banco: si
+# en la sesion no se mira, WoW lo reescribe a su manera, repartido en varias.
+PENDIENTE_RE = re.compile(r'^\["bancoDeOtraCuenta"\] = (?=\{)', re.MULTILINE)
+FIN_PENDIENTE_RE = re.compile(r",?\r?\n?")
 CABECERA_RE = re.compile(r"^WowAlertsExportDB = \{(\r?\n)", re.MULTILINE)
 
 
@@ -68,9 +70,43 @@ def _lua(valor: Any) -> str:
     return f'"{cadena}"'
 
 
+def _fin_de_tabla(texto: str, i: int) -> int | None:
+    """Donde acaba la tabla que abre la llave de texto[i], sin mirar en cadenas."""
+    nivel = 0
+    en_cadena = False
+    while i < len(texto):
+        c = texto[i]
+        if en_cadena:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                en_cadena = False
+        elif c == '"':
+            en_cadena = True
+        elif c == "{":
+            nivel += 1
+        elif c == "}":
+            nivel -= 1
+            if nivel == 0:
+                return i + 1
+        i += 1
+    return None
+
+
+def _sin_pendiente(texto: str) -> str:
+    """El fichero sin bancoDeOtraCuenta, ocupe una linea o varias."""
+    while match := PENDIENTE_RE.search(texto):
+        fin = _fin_de_tabla(texto, match.end())
+        if fin is None:
+            return texto
+        fin = FIN_PENDIENTE_RE.match(texto, fin).end()
+        texto = texto[: match.start()] + texto[fin:]
+    return texto
+
+
 def con_pendiente(texto: str, pendiente: dict[str, dict]) -> str:
     """El fichero con `pendiente` como bancoDeOtraCuenta, en lugar del que hubiera."""
-    texto = PENDIENTE_RE.sub("", texto)
+    texto = _sin_pendiente(texto)
     if not pendiente:
         return texto
     match = CABECERA_RE.search(texto)

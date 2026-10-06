@@ -82,6 +82,39 @@ def test_sin_cabecera_reconocible_no_toca_el_fichero():
     assert con_pendiente("basura", banco(9)) == "basura"
 
 
+# Si el addon no llega a leer bancoDeOtraCuenta en la sesion, WoW lo reescribe
+# a su manera, repartido en varias lineas.
+REPARTIDO = "\r\n".join(
+    [
+        "",
+        "WowAlertsExportDB = {",
+        '["reposteo"] = {',
+        "},",
+        '["bancoDeOtraCuenta"] = {',
+        '["Grobworld-Naxxramas"] = {',
+        '["en"] = 1,',
+        '["copias"] = {',
+        '["271434:308"] = 1,',
+        "},",
+        "},",
+        "},",
+        '["payload"] = "{\\"a\\":\\"}{\\"}",',
+        "}",
+        "",
+    ]
+)
+
+
+@pytest.mark.parametrize("pendiente", [banco(9), {}])
+def test_quita_el_que_wow_reescribio_en_varias_lineas(pendiente):
+    texto = con_pendiente(REPARTIDO, pendiente)
+
+    assert texto.count('["bancoDeOtraCuenta"]') == (1 if pendiente else 0)
+    assert '["Grobworld-Naxxramas"] = {\r\n' not in texto
+    assert '["payload"] = "{\\"a\\":\\"}{\\"}",' in texto
+    assert texto.count("{") == texto.count("}")
+
+
 # -- De punta a punta: lo que escribe esto lo entiende el addon --------------
 
 lupa = pytest.importorskip("lupa.lua51")
@@ -104,6 +137,15 @@ def test_el_addon_entiende_lo_que_se_le_deja(tmp_path):
     addon.con_banco(lua, {1: {3: addon.del_banco()}})
     assert addon.copias(lua, 271434, 308) == 1
     assert addon.ilvl(lua, 1, 3) == 308
+
+
+def test_lo_reescrito_por_wow_se_cambia_por_algo_que_carga(tmp_path):
+    (vieja,) = cuentas(tmp_path, REPARTIDO)
+
+    con = con_pendiente(leer(vieja), banco(9))
+    lua = lupa.LuaRuntime()
+    lua.execute(con)
+    assert lua.eval('WowAlertsExportDB.bancoDeOtraCuenta["Grobworld-Naxxramas"].en') == 9
 
 
 def test_junta_los_ilvl_de_todas_las_cuentas_hueco_a_hueco(tmp_path):
