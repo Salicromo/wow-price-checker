@@ -205,7 +205,7 @@ def test_mensaje_de_prueba(requests_mock):
 # -- Avisos de undercut -----------------------------------------------------
 
 from wowalerts.misubastas import MyAuction
-from wowalerts.notifier import build_undercut_messages
+from wowalerts.notifier import COLOR_UNDERCUT, build_undercut_messages
 from wowalerts.undercut import Undercut
 
 
@@ -241,14 +241,14 @@ def un_undercut(
 
 
 def texto(mensaje) -> str:
-    """El texto de un aviso, para poder buscar en el.
+    """Todo el texto de la tarjeta, junto, para poder buscar en el.
 
-    El de undercut va como mensaje normal; los de ventas, en tarjeta.
+    Cada columna sale como su nombre y debajo su contenido.
     """
-    if "content" in mensaje:
-        return mensaje["content"]
     embed = mensaje["embeds"][0]
-    return embed["title"] + "\n" + embed["description"]
+    partes = [embed["title"], embed.get("description", "")]
+    partes += [f"{c['name']}\n{c['value']}" for c in embed.get("fields", [])]
+    return "\n".join(partes)
 
 
 def test_sin_undercuts_no_hay_mensajes():
@@ -297,8 +297,8 @@ def test_los_personajes_van_agrupados_por_cuenta():
             ]
         )[0]
     )
-    assert "**WoW 3**\n• Pepe" in contenido
-    assert "**WoW 2**\n• Ana" in contenido
+    assert "WoW 3\n• Pepe" in contenido
+    assert "WoW 2\n• Ana" in contenido
 
 
 def test_el_orden_de_personajes_decide_tambien_el_de_las_cuentas():
@@ -337,11 +337,11 @@ def test_el_total_va_en_el_titulo():
     mensajes = build_undercut_messages(
         [un_undercut(auction_id=1), un_undercut(auction_id=2)]
     )
-    assert "2 subastas" in texto(mensajes[0]).splitlines()[0]
+    assert "2 subastas" in mensajes[0]["embeds"][0]["title"]
 
 
 def test_una_sola_subasta_va_en_singular():
-    titulo = texto(build_undercut_messages([un_undercut()])[0]).splitlines()[0]
+    titulo = build_undercut_messages([un_undercut()])[0]["embeds"][0]["title"]
     assert "1 subasta" in titulo
     assert "subastas" not in titulo
 
@@ -392,16 +392,23 @@ def test_sin_ninguna_cara_no_se_marca_nada():
     assert "💰" not in contenido
 
 
-def test_va_como_texto_y_sin_encabezados():
-    """Los encabezados salen en negrita y blanco puro: cansan la vista."""
-    mensaje = build_undercut_messages([un_undercut()])[0]
-    assert "embeds" not in mensaje
-    assert "#" not in mensaje["content"]
+def test_una_columna_por_cuenta_lado_a_lado():
+    mensaje = build_undercut_messages(
+        [
+            un_undercut(personaje="Pepe", cuenta=2, auction_id=1),
+            un_undercut(personaje="Ana", cuenta=3, auction_id=2),
+        ]
+    )[0]
+    embed = mensaje["embeds"][0]
+    assert embed["color"] == COLOR_UNDERCUT
+    assert [c["name"] for c in embed["fields"]] == ["WoW 2", "WoW 3"]
+    assert all(c["inline"] for c in embed["fields"])
+    assert "#" not in texto(mensaje)
 
 
 # -- Panel de estado --------------------------------------------------------
 
-from wowalerts.notifier import build_undercut_messages as _bum  # noqa: F401
+from wowalerts.notifier import COLOR_UNDERCUT, build_undercut_messages as _bum  # noqa: F401
 
 PANEL = {"embeds": [{"title": "📊 Tus subastas"}]}
 
@@ -577,7 +584,9 @@ def test_el_enlace_del_panel_va_al_final():
     mensajes = build_undercut_messages(
         [un_undercut()], panel_url="https://discord.com/channels/1/2/3"
     )
-    assert texto(mensajes[0]).endswith("(<https://discord.com/channels/1/2/3>)")
+    assert mensajes[0]["embeds"][0]["description"] == (
+        "[📊 Ver el panel con todas](https://discord.com/channels/1/2/3)"
+    )
 
 
 def make_deal_sin_ilvl(price_gold=45_000, threshold_gold=60_000):
