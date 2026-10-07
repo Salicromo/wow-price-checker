@@ -27,6 +27,10 @@ on:
         description: 'Solo mostrar los chollos, sin avisar por Discord'
         type: boolean
         default: false
+      forzar_undercut:
+        description: 'Mandar el aviso de undercuts aunque no haya ninguno nuevo'
+        type: boolean
+        default: false
 
 # Si una pasada se alarga, la siguiente espera en vez de solaparse: dos
 # ejecuciones a la vez se pisarian la memoria de avisos.
@@ -183,7 +187,10 @@ jobs:
           DISCORD_VENTAS_WEBHOOK_URL: ${{ secrets.DISCORD_VENTAS_WEBHOOK_URL }}
           BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
           BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
-        run: python main.py --undercut --ventas ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: >-
+          python main.py --undercut --ventas
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.forzar_undercut && '--ignore-state' || '' }}
 
       - name: Publicar datos para la app
         # Los ficheros que lee la app del movil: el catalogo de objetos y el
