@@ -30,13 +30,13 @@ region: eu
 items:
   - name: "Greaves of the Noxious Depths"
     max_price_by_ilvl:
-      { 295: 6999, 298: 12000, 305: 10000, 308: 15000, 311: 35000,
-        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+      { 295: 6999, 298: 12000, 305: 10000, 308: 13000, 311: 35000,
+        318: 80000, 321: 90000, 324: 100000, 328: 200000 }
 
   - name: "Temple Delver's Mystic Helm"
     max_price_by_ilvl:
       { 295: 9000, 298: 12000, 305: 18000, 308: 24000, 311: 40000,
-        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+        318: 80000, 321: 100000, 324: 150000, 328: 200000 }
 
   - name: "Slitherscale Girdle"
     max_price_by_ilvl:
@@ -46,7 +46,7 @@ items:
   - name: "Slippers of the Hissing Cult"
     max_price_by_ilvl:
       { 295: 9000, 298: 12000, 305: 14000, 308: 20000, 311: 40000,
-        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+        318: 100000, 321: 120000, 324: 150000, 328: 200000 }
 
   - name: "Pauldrons of the Forgotten Sacrifice"
     max_price_by_ilvl:
@@ -61,7 +61,7 @@ items:
   - name: "Crushing Coiler Coif"
     max_price_by_ilvl:
       { 295: 9000, 298: 12000, 305: 14000, 308: 16000, 311: 40000,
-        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+        318: 90000, 321: 110000, 324: 125000, 328: 200000 }
 
   - name: "Fanged Brute's Greatbelt"
     max_price_by_ilvl:
