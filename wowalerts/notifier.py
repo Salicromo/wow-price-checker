@@ -378,7 +378,7 @@ def _undercut_messages(
         # Las caras son las que mas merece la pena ir a recolocar primero.
         caras = sum(1 for u in suyas if u.my_price_gold > UNDERCUT_CARO_GOLD)
         if caras:
-            linea += f" (💰 {caras} de +{format_gold(UNDERCUT_CARO_GOLD)} g)"
+            linea += f" (💰 {caras})"
         por_cuenta.setdefault(account, []).append(linea)
 
     bloques = []

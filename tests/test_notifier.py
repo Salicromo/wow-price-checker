@@ -379,7 +379,7 @@ def test_se_marcan_las_de_mas_de_80k():
             ]
         )[0]
     )
-    assert "• Pepe — 3 (💰 2 de +80.000 g)" in contenido
+    assert "• Pepe — 3 (💰 2)" in contenido
 
 
 def test_sin_ninguna_cara_no_se_marca_nada():
