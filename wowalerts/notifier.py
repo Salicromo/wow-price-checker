@@ -374,7 +374,7 @@ def _undercut_messages(
     # personajes.yaml decide tambien que cuenta va primero.
     por_cuenta: dict[object, list[str]] = {}
     for (character, _realm, account), suyas in _en_orden(por_personaje, orden):
-        linea = f"• {character} — {len(suyas)}"
+        linea = f"### • {character} — {len(suyas)}"
         # Las caras son las que mas merece la pena ir a recolocar primero.
         caras = sum(1 for u in suyas if u.my_price_gold > UNDERCUT_CARO_GOLD)
         if caras:
@@ -383,7 +383,7 @@ def _undercut_messages(
 
     bloques = []
     for account, lineas in por_cuenta.items():
-        cabecera = f"**WoW {account}**" if account is not None else "**Otros**"
+        cabecera = f"## WoW {account}" if account is not None else "## Otros"
         bloques.append("\n".join([cabecera, *lineas]))
     descripcion = "\n\n".join(bloques)
     if panel_url:

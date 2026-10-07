@@ -292,8 +292,8 @@ def test_los_personajes_van_agrupados_por_cuenta():
             ]
         )[0]
     )
-    assert "**WoW 3**\n• Pepe" in contenido
-    assert "**WoW 2**\n• Ana" in contenido
+    assert "## WoW 3\n### • Pepe" in contenido
+    assert "## WoW 2\n### • Ana" in contenido
 
 
 def test_el_orden_de_personajes_decide_tambien_el_de_las_cuentas():
