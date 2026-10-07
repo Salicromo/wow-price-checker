@@ -205,7 +205,7 @@ def test_mensaje_de_prueba(requests_mock):
 # -- Avisos de undercut -----------------------------------------------------
 
 from wowalerts.misubastas import MyAuction
-from wowalerts.notifier import COLOR_UNDERCUT, build_undercut_messages
+from wowalerts.notifier import build_undercut_messages
 from wowalerts.undercut import Undercut
 
 
@@ -241,7 +241,12 @@ def un_undercut(
 
 
 def texto(mensaje) -> str:
-    """Titulo y descripcion de la tarjeta, juntos, para poder buscar en ellos."""
+    """El texto de un aviso, para poder buscar en el.
+
+    El de undercut va como mensaje normal; los de ventas, en tarjeta.
+    """
+    if "content" in mensaje:
+        return mensaje["content"]
     embed = mensaje["embeds"][0]
     return embed["title"] + "\n" + embed["description"]
 
@@ -292,8 +297,8 @@ def test_los_personajes_van_agrupados_por_cuenta():
             ]
         )[0]
     )
-    assert "## WoW 3\n### • Pepe" in contenido
-    assert "## WoW 2\n### • Ana" in contenido
+    assert "**WoW 3**\n• Pepe" in contenido
+    assert "**WoW 2**\n• Ana" in contenido
 
 
 def test_el_orden_de_personajes_decide_tambien_el_de_las_cuentas():
@@ -332,11 +337,11 @@ def test_el_total_va_en_el_titulo():
     mensajes = build_undercut_messages(
         [un_undercut(auction_id=1), un_undercut(auction_id=2)]
     )
-    assert "2 subastas" in mensajes[0]["embeds"][0]["title"]
+    assert "2 subastas" in texto(mensajes[0]).splitlines()[0]
 
 
 def test_una_sola_subasta_va_en_singular():
-    titulo = build_undercut_messages([un_undercut()])[0]["embeds"][0]["title"]
+    titulo = texto(build_undercut_messages([un_undercut()])[0]).splitlines()[0]
     assert "1 subasta" in titulo
     assert "subastas" not in titulo
 
@@ -387,10 +392,11 @@ def test_sin_ninguna_cara_no_se_marca_nada():
     assert "💰" not in contenido
 
 
-def test_cada_mensaje_es_una_tarjeta_con_su_color():
+def test_va_como_texto_y_sin_encabezados():
+    """Los encabezados salen en negrita y blanco puro: cansan la vista."""
     mensaje = build_undercut_messages([un_undercut()])[0]
-    assert len(mensaje["embeds"]) == 1
-    assert mensaje["embeds"][0]["color"] == COLOR_UNDERCUT
+    assert "embeds" not in mensaje
+    assert "#" not in mensaje["content"]
 
 
 # -- Panel de estado --------------------------------------------------------
@@ -571,9 +577,7 @@ def test_el_enlace_del_panel_va_al_final():
     mensajes = build_undercut_messages(
         [un_undercut()], panel_url="https://discord.com/channels/1/2/3"
     )
-    assert mensajes[0]["embeds"][0]["description"].endswith(
-        "(https://discord.com/channels/1/2/3)"
-    )
+    assert texto(mensajes[0]).endswith("(<https://discord.com/channels/1/2/3>)")
 
 
 def make_deal_sin_ilvl(price_gold=45_000, threshold_gold=60_000):

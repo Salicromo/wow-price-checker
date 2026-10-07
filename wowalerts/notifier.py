@@ -32,7 +32,6 @@ COLOR_GOOD = 0xE67E22        # naranja: por debajo del umbral
 COLOR_GREAT = 0xF1C40F       # amarillo: bastante por debajo
 COLOR_STEAL = 0x2ECC71       # verde: chollo serio
 COLOR_WARNING = 0xE74C3C     # rojo: aviso de salud del bot
-COLOR_UNDERCUT = 0xC0392B    # rojo oscuro: te han adelantado
 COLOR_VENTA = 0xD4AF37       # oro viejo: dinero que entra
 # Limite duro de Discord para la descripcion de un embed.
 MAX_EMBED_DESCRIPTION = 4096
@@ -374,31 +373,26 @@ def _undercut_messages(
     # personajes.yaml decide tambien que cuenta va primero.
     por_cuenta: dict[object, list[str]] = {}
     for (character, _realm, account), suyas in _en_orden(por_personaje, orden):
-        linea = f"### • {character} — {len(suyas)}"
+        linea = f"• {character} — {len(suyas)}"
         # Las caras son las que mas merece la pena ir a recolocar primero.
         caras = sum(1 for u in suyas if u.my_price_gold > UNDERCUT_CARO_GOLD)
         if caras:
             linea += f" (💰 {caras})"
         por_cuenta.setdefault(account, []).append(linea)
 
-    bloques = []
-    for account, lineas in por_cuenta.items():
-        cabecera = f"## WoW {account}" if account is not None else "## Otros"
-        bloques.append("\n".join([cabecera, *lineas]))
-    descripcion = "\n\n".join(bloques)
-    if panel_url:
-        descripcion += f"\n\n[📊 Ver el panel con todas]({panel_url})"
-
     plural = "subastas" if len(todas) != 1 else "subasta"
-    mensaje = {
-        "embeds": [
-            {
-                "title": f"⚔️ Te han adelantado — {len(todas)} {plural}",
-                "description": descripcion,
-                "color": COLOR_UNDERCUT,
-            }
-        ]
-    }
+    bloques = [f"⚔️ **Te han adelantado — {len(todas)} {plural}**"]
+    for account, lineas in por_cuenta.items():
+        cabecera = f"**WoW {account}**" if account is not None else "**Otros**"
+        bloques.append("\n".join([cabecera, *lineas]))
+    if panel_url:
+        # Entre <> para que Discord no le cuelgue una vista previa.
+        bloques.append(f"[📊 Ver el panel con todas](<{panel_url}>)")
+
+    # Texto suelto y no tarjeta: la letra de un mensaje normal es mas grande
+    # que la de un embed, y sin encabezados no sale todo en negrita y blanco
+    # puro, que cansa la vista.
+    mensaje = {"content": "\n\n".join(bloques)}
     return [(mensaje, todas)]
 
 
