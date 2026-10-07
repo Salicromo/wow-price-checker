@@ -250,34 +250,7 @@ def test_sin_undercuts_no_hay_mensajes():
     assert build_undercut_messages([]) == []
 
 
-def test_la_cabecera_lleva_personaje_y_cuenta():
-    contenido = texto(build_undercut_messages([un_undercut()])[0])
-    assert "Pepe" in contenido
-    assert "WoW 2" in contenido
-
-
-def test_la_cabecera_no_lleva_el_reino():
-    contenido = texto(build_undercut_messages([un_undercut()])[0])
-    assert "Sanguino" not in contenido
-
-
-def test_sin_cuenta_conocida_solo_va_el_personaje():
-    contenido = texto(build_undercut_messages([un_undercut(cuenta=None)])[0])
-    assert "Pepe" in contenido
-    assert "WoW" not in contenido
-
-
-def test_el_mismo_personaje_en_cuentas_distintas_son_mensajes_distintos():
-    mensajes = build_undercut_messages(
-        [
-            un_undercut(personaje="Pepe", cuenta=1, auction_id=1),
-            un_undercut(personaje="Pepe", cuenta=3, auction_id=2),
-        ]
-    )
-    assert len(mensajes) == 2
-
-
-def test_un_mensaje_por_personaje():
+def test_todo_va_en_un_solo_mensaje():
     mensajes = build_undercut_messages(
         [
             un_undercut(personaje="Pepe", auction_id=1),
@@ -285,87 +258,101 @@ def test_un_mensaje_por_personaje():
             un_undercut(personaje="Pepe", auction_id=3),
         ]
     )
-    assert len(mensajes) == 2
-    assert "Pepe" in texto(mensajes[0])
-    assert "Ana" in texto(mensajes[1])
-
-
-def test_las_subastas_de_un_personaje_van_juntas():
-    mensajes = build_undercut_messages(
-        [
-            un_undercut(objeto="Grebas", personaje="Pepe", auction_id=1),
-            un_undercut(objeto="Zapatillas", personaje="Pepe", auction_id=2),
-        ]
-    )
     assert len(mensajes) == 1
-    assert "Grebas" in texto(mensajes[0])
-    assert "Zapatillas" in texto(mensajes[0])
 
 
-def test_un_undercut_de_verdad_muestra_los_dos_precios():
+def test_cada_personaje_sale_una_vez_con_su_recuento():
     contenido = texto(
-        build_undercut_messages([un_undercut(oro_mio=50000, oro_rival=30000)])[0]
+        build_undercut_messages(
+            [
+                un_undercut(personaje="Pepe", auction_id=1),
+                un_undercut(personaje="Ana", auction_id=2),
+                un_undercut(personaje="Pepe", auction_id=3),
+            ]
+        )[0]
     )
-    assert "50.000" in contenido
-    assert "30.000" in contenido
+    assert "• Pepe — 2" in contenido
+    assert "• Ana — 1" in contenido
+    assert contenido.count("Pepe") == 1
 
 
-def test_un_empate_se_dice_como_empate():
+def test_no_lleva_el_detalle_de_cada_subasta():
+    """Solo que personajes: el detalle esta en la ventana del addon."""
+    contenido = texto(build_undercut_messages([un_undercut(objeto="Grebas")])[0])
+    assert "Grebas" not in contenido
+    assert "Sanguino" not in contenido
+
+
+def test_los_personajes_van_agrupados_por_cuenta():
     contenido = texto(
-        build_undercut_messages([un_undercut(oro_mio=9000, oro_rival=9000)])[0]
+        build_undercut_messages(
+            [
+                un_undercut(personaje="Pepe", cuenta=3, auction_id=1),
+                un_undercut(personaje="Ana", cuenta=2, auction_id=2),
+            ]
+        )[0]
     )
-    assert "igualan" in contenido
-    assert "9.000" in contenido
+    assert "**WoW 3**\n• Pepe" in contenido
+    assert "**WoW 2**\n• Ana" in contenido
 
 
-def test_el_recuento_va_en_la_cabecera():
+def test_el_orden_de_personajes_decide_tambien_el_de_las_cuentas():
+    orden = {("Ana", "Sanguino"): 0, ("Pepe", "Sanguino"): 1}
+    contenido = texto(
+        build_undercut_messages(
+            [
+                un_undercut(personaje="Pepe", cuenta=3, auction_id=1),
+                un_undercut(personaje="Ana", cuenta=2, auction_id=2),
+            ],
+            orden=orden,
+        )[0]
+    )
+    assert contenido.index("WoW 2") < contenido.index("WoW 3")
+
+
+def test_el_mismo_personaje_en_cuentas_distintas_sale_en_cada_una():
+    contenido = texto(
+        build_undercut_messages(
+            [
+                un_undercut(personaje="Pepe", cuenta=1, auction_id=1),
+                un_undercut(personaje="Pepe", cuenta=3, auction_id=2),
+            ]
+        )[0]
+    )
+    assert contenido.count("• Pepe — 1") == 2
+
+
+def test_sin_cuenta_conocida_va_aparte():
+    contenido = texto(build_undercut_messages([un_undercut(cuenta=None)])[0])
+    assert "• Pepe — 1" in contenido
+    assert "WoW" not in contenido
+
+
+def test_el_total_va_en_el_titulo():
     mensajes = build_undercut_messages(
         [un_undercut(auction_id=1), un_undercut(auction_id=2)]
     )
-    assert "2 subastas" in texto(mensajes[0])
+    assert "2 subastas" in mensajes[0]["embeds"][0]["title"]
 
 
 def test_una_sola_subasta_va_en_singular():
-    contenido = texto(build_undercut_messages([un_undercut()])[0])
-    assert "1 subasta" in contenido
-    assert "subastas" not in contenido
+    titulo = build_undercut_messages([un_undercut()])[0]["embeds"][0]["title"]
+    assert "1 subasta" in titulo
+    assert "subastas" not in titulo
 
 
-def test_las_ya_avisadas_van_con_las_nuevas_del_personaje():
-    """Acumuladas en la misma tarjeta: no hay bloque de repetidas."""
-    ya = [un_undercut(objeto="Zapatillas", auction_id=7)]
-    mensajes = build_undercut_messages(
-        [un_undercut(objeto="Grebas", auction_id=1)], ya_avisados=ya
-    )
-    assert len(mensajes) == 1
-    contenido = texto(mensajes[0])
-    assert "Grebas" in contenido
-    assert "Zapatillas" in contenido
-
-
-def test_el_recuento_incluye_las_ya_avisadas():
+def test_las_ya_avisadas_cuentan_con_las_nuevas():
     """El numero es lo que hay adelantado ahora, no solo lo nuevo."""
-    ya = [un_undercut(objeto="Zapatillas", auction_id=7)]
-    mensajes = build_undercut_messages([un_undercut(auction_id=1)], ya_avisados=ya)
-    assert "2 subastas" in texto(mensajes[0])
-
-
-def test_una_ya_avisada_no_se_marca_como_repetida():
-    """Decir que ya se aviso no cambia nada: solo estorba."""
-    ya = [un_undercut(objeto="Zapatillas", auction_id=7)]
+    ya = [
+        un_undercut(auction_id=7),
+        un_undercut(personaje="Ana", auction_id=8),
+    ]
     contenido = texto(
         build_undercut_messages([un_undercut(auction_id=1)], ya_avisados=ya)[0]
     )
-    for palabra in ("ya te avise", "repetid", "sigue adelantada"):
-        assert palabra not in contenido.lower()
-
-
-def test_una_ya_avisada_de_otro_personaje_va_en_su_mensaje():
-    ya = [un_undercut(personaje="Ana", objeto="Zapatillas", auction_id=7)]
-    mensajes = build_undercut_messages([un_undercut(personaje="Pepe")], ya_avisados=ya)
-    assert len(mensajes) == 2
-    assert "Zapatillas" in texto(mensajes[1])
-    assert "Ana" in texto(mensajes[1])
+    assert "3 subastas" in contenido
+    assert "• Pepe — 2" in contenido
+    assert "• Ana — 1" in contenido
 
 
 def test_sin_ninguna_nueva_no_se_avisa_de_las_ya_avisadas():
@@ -374,34 +361,18 @@ def test_sin_ninguna_nueva_no_se_avisa_de_las_ya_avisadas():
     assert build_undercut_messages([], ya_avisados=ya) == []
 
 
-def test_sin_repetidos_no_se_anade_nada():
-    mensajes = build_undercut_messages([un_undercut()], ya_avisados=[])
-    assert len(mensajes) == 1
-    assert "content" not in mensajes[0]
-
-
-def test_un_personaje_con_muchisimas_se_parte_en_varios_mensajes():
-    muchas = [un_undercut(auction_id=i) for i in range(1, 26)]
+def test_no_hay_tope_de_subastas():
+    """Con un personaje por linea caben todas: el recuento es el de verdad."""
+    muchas = [un_undercut(auction_id=i) for i in range(1, 121)]
     mensajes = build_undercut_messages(muchas)
-    assert len(mensajes) == 2
-    assert "Pepe" in texto(mensajes[1])
+    assert len(mensajes) == 1
+    assert "• Pepe — 120" in texto(mensajes[0])
 
 
 def test_cada_mensaje_es_una_tarjeta_con_su_color():
     mensaje = build_undercut_messages([un_undercut()])[0]
     assert len(mensaje["embeds"]) == 1
     assert mensaje["embeds"][0]["color"] == COLOR_UNDERCUT
-
-
-def test_ninguna_tarjeta_pasa_de_los_limites_de_discord():
-    muchas = [
-        un_undercut(objeto="Objeto con un nombre larguisimo " * 3, auction_id=i)
-        for i in range(1, 51)
-    ]
-    for mensaje in build_undercut_messages(muchas):
-        embed = mensaje["embeds"][0]
-        assert len(embed["description"]) <= 4096
-        assert len(embed["title"]) <= 256
 
 
 # -- Panel de estado --------------------------------------------------------
@@ -578,17 +549,13 @@ def test_sin_guild_no_hay_enlace(requests_mock):
     assert notifier.panel_url("333") is None
 
 
-def test_el_enlace_del_panel_va_una_vez_al_final():
-    ya = [un_undercut(personaje="Ana", objeto="Zapatillas", auction_id=7)]
+def test_el_enlace_del_panel_va_al_final():
     mensajes = build_undercut_messages(
-        [un_undercut()], ya_avisados=ya, panel_url="https://discord.com/channels/1/2/3"
+        [un_undercut()], panel_url="https://discord.com/channels/1/2/3"
     )
-    enlaces = [
-        m for m in mensajes if "channels/1/2/3" in m["embeds"][0]["description"]
-    ]
-    assert len(enlaces) == 1
-    assert enlaces[0] is mensajes[-1]
-
+    assert mensajes[0]["embeds"][0]["description"].endswith(
+        "(https://discord.com/channels/1/2/3)"
+    )
 
 
 def make_deal_sin_ilvl(price_gold=45_000, threshold_gold=60_000):
@@ -682,39 +649,7 @@ def test_el_repositorio_sale_del_entorno_en_actions(monkeypatch):
     assert "github.com/otro/repo/issues/new" in _campo(embed, "Ajustar tope")["value"]
 
 
-# -- El ilvl en las lineas de undercut y de venta ----------------------------
-
-
-def test_un_undercut_dice_el_ilvl_de_la_subasta():
-    """El mismo objeto se pone a muchos ilvl: sin el, no sabes cual cambiar."""
-    contenido = texto(build_undercut_messages([un_undercut(ilvl=308)])[0])
-    assert "Grebas de las profundidades nocivas (308)" in contenido
-
-
-def test_el_mismo_objeto_a_dos_ilvl_se_distingue():
-    contenido = texto(
-        build_undercut_messages(
-            [un_undercut(ilvl=298, auction_id=1), un_undercut(ilvl=311, auction_id=2)]
-        )[0]
-    )
-    assert "(298)" in contenido
-    assert "(311)" in contenido
-
-
-def test_un_empate_tambien_dice_el_ilvl():
-    contenido = texto(
-        build_undercut_messages([un_undercut(oro_mio=9000, oro_rival=9000, ilvl=295)])[0]
-    )
-    assert "(295) — te igualan" in contenido
-
-
-def test_una_receta_no_lleva_ilvl_en_el_undercut():
-    """Lo que no escala sale del juego con ilvl 1, y eso no dice nada."""
-    contenido = texto(
-        build_undercut_messages([un_undercut(objeto="Patrón: cordón", ilvl=1)])[0]
-    )
-    assert "Patrón: cordón —" in contenido
-    assert "(1)" not in contenido
+# -- El ilvl en las lineas de venta ----------------------------
 
 
 def test_una_receta_vendida_no_lleva_ilvl():
@@ -818,20 +753,27 @@ def test_si_falla_a_mitad_el_error_dice_que_chollos_si_llegaron(requests_mock):
     assert fallo.value.entregados == deals[:10]
 
 
-def test_si_falla_a_mitad_el_error_dice_que_undercuts_si_llegaron(requests_mock):
-    requests_mock.post(WEBHOOK, [{"status_code": 204}, {"status_code": 500}])
+def test_si_falla_el_aviso_de_undercuts_no_se_entrego_ninguno(requests_mock):
+    requests_mock.post(WEBHOOK, status_code=500)
     notifier = DiscordNotifier(
         WEBHOOK, session=requests.Session(), max_retries=0, sleep=lambda _: None
     )
     pepe = un_undercut(personaje="Pepe", auction_id=1)
-    ana = un_undercut(personaje="Ana", auction_id=2)
-    ya = un_undercut(personaje="Pepe", auction_id=3)
 
     with pytest.raises(DiscordError) as fallo:
-        notifier.send_undercuts([pepe, ana], ya_avisados=[ya])
+        notifier.send_undercuts([pepe])
 
-    # Solo las nuevas: las ya avisadas ya constan, y la de Ana no llego.
-    assert fallo.value.entregados == [pepe]
+    assert fallo.value.entregados == []
+
+
+def test_se_entregan_solo_las_nuevas(requests_mock):
+    """Las ya avisadas ya constan: no hay que volver a marcarlas."""
+    requests_mock.post(WEBHOOK, status_code=204)
+    notifier = DiscordNotifier(WEBHOOK, session=requests.Session())
+    pepe = un_undercut(personaje="Pepe", auction_id=1)
+    ya = un_undercut(personaje="Pepe", auction_id=3)
+
+    assert notifier.send_undercuts([pepe], ya_avisados=[ya]) == [pepe]
 
 
 def test_si_falla_el_primero_no_se_entrego_nada(requests_mock):

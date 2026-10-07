@@ -304,18 +304,6 @@ def nombre_con_ilvl(item_name: str, ilvl: int | None) -> str:
     return nombre
 
 
-def _undercut_line(undercut: Undercut) -> str:
-    """Una linea del aviso: que objeto y a que precio hay que batir."""
-    nombre = nombre_con_ilvl(undercut.mine.item_name, undercut.mine.ilvl)
-
-    if undercut.tied:
-        return f"• {nombre} — te igualan a {format_gold(undercut.rival_price_gold)} g"
-    return (
-        f"• {nombre} — ~~{format_gold(undercut.my_price_gold)}~~ "
-        f"**{format_gold(undercut.rival_price_gold)} g**"
-    )
-
-
 def _repartir(lineas: list[str], presupuesto: int) -> list[list[str]]:
     """Parte las lineas en grupos que quepan en un mensaje de Discord."""
     grupos: list[list[str]] = []
@@ -341,7 +329,7 @@ def build_undercut_messages(
     panel_url: str | None = None,
     orden: Mapping[tuple[str, str], int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Un mensaje por personaje; ver `_undercut_messages`."""
+    """El resumen por personaje; ver `_undercut_messages`."""
     return [
         mensaje
         for mensaje, _ in _undercut_messages(undercuts, ya_avisados, panel_url, orden)
@@ -354,98 +342,57 @@ def _undercut_messages(
     panel_url: str | None = None,
     orden: Mapping[tuple[str, str], int] | None = None,
 ) -> list[tuple[dict[str, Any], list[Undercut]]]:
-    """Cada mensaje de undercut junto con los undercuts que lleva dentro.
+    """El aviso de undercut junto con los undercuts que lleva dentro.
 
-    Un mensaje por personaje, con sus subastas adelantadas en una tarjeta.
+    Un solo mensaje: que personajes tienen algo adelantado y cuantas, por
+    cuenta y en el orden en que los tienes en el selector. Es la lista de
+    buzones por los que pasar; el detalle de cada subasta lo da la ventana del
+    addon en el juego, que ademas esta al minuto y el volcado de Blizzard no.
 
-    Agrupar por personaje es lo que hace el aviso accionable: cada mensaje es
-    un viaje al buzon de un personaje concreto, y dice todo lo que hay que
-    cambiar alli.
-
-    Va en un embed y no en texto suelto porque Discord encadena los mensajes
-    seguidos de un mismo webhook: le quita al segundo el avatar y el nombre, y
-    dos avisos se leen como uno. El borde de color de la tarjeta los separa sin
-    gastar una linea en decirlo.
-
-    Las de `ya_avisados` no van aparte ni marcadas como repetidas: se acumulan
-    con las nuevas en la tarjeta de su personaje. Saber cuando se aviso por
-    primera vez no cambia nada; lo accionable es todo lo que sigue adelantado.
-    Solo hay mensaje si hay alguna nueva, que es lo que evita repetir el mismo
-    aviso cada pasada.
+    Las de `ya_avisados` cuentan igual que las nuevas: lo accionable es todo lo
+    que sigue adelantado, no cuando se dijo. Solo hay mensaje si hay alguna
+    nueva, que es lo que evita repetir el mismo aviso cada pasada.
     """
     if not undercuts:
         return []
 
-    # Las nuevas primero para que el tope de la pasada nunca deje fuera una que
-    # no se haya avisado todavia: esas son las que luego se marcan como avisadas.
-    shown = list(undercuts[:MAX_DEALS_PER_RUN])
-    shown += list(ya_avisados)[: max(0, MAX_DEALS_PER_RUN - len(shown))]
+    todas = list(undercuts) + list(ya_avisados)
 
-    # dict normal: conserva el orden de llegada, que ya viene por diferencia de
-    # precio, asi que el personaje con el undercut mas gordo sale primero.
-    por_personaje: dict[tuple[str, str, object], list[Undercut]] = {}
-    for undercut in shown:
+    # dict normal: conserva el orden de llegada para quien no este en `orden`.
+    por_personaje: dict[tuple[str, str, object], int] = {}
+    for undercut in todas:
         clave = (
             undercut.mine.character,
             undercut.mine.realm,
             undercut.mine.account,
         )
-        por_personaje.setdefault(clave, []).append(undercut)
+        por_personaje[clave] = por_personaje.get(clave, 0) + 1
 
-    messages: list[tuple[dict[str, Any], list[Undercut]]] = []
-    for (character, _realm, account), suyas in _en_orden(por_personaje, orden):
-        # El reino no hace falta: lo que necesitas para ir a cambiarlo es a que
-        # cuenta entrar y con que personaje.
-        quien = f"⚔️ {character}"
-        if account is not None:
-            quien += f" · WoW {account}"
+    # Las cuentas salen en el orden de su primer personaje, asi que el orden de
+    # personajes.yaml decide tambien que cuenta va primero.
+    por_cuenta: dict[object, list[str]] = {}
+    for (character, _realm, account), cuantas in _en_orden(por_personaje, orden):
+        por_cuenta.setdefault(account, []).append(f"• {character} — {cuantas}")
 
-        # El recuento es todo lo que ese personaje tiene adelantado ahora
-        # mismo, se avisara antes o no: es exactamente lo que hay que ir a
-        # cambiar en su buzon.
-        plural = "subastas" if len(suyas) != 1 else "subasta"
-        titulo = f"{quien} — {len(suyas)} {plural}"
-        continuacion = f"{quien} · sigue"
+    bloques = []
+    for account, lineas in por_cuenta.items():
+        cabecera = f"**WoW {account}**" if account is not None else "**Otros**"
+        bloques.append("\n".join([cabecera, *lineas]))
+    descripcion = "\n\n".join(bloques)
+    if panel_url:
+        descripcion += f"\n\n[📊 Ver el panel con todas]({panel_url})"
 
-        grupos = _repartir(
-            [_undercut_line(u) for u in suyas], MAX_EMBED_DESCRIPTION
-        )
-        # Cada linea es una subasta, en el mismo orden que `suyas`: asi se sabe
-        # que undercuts lleva cada trozo.
-        hechas = 0
-        for indice, grupo in enumerate(grupos):
-            mensaje = {
-                "embeds": [
-                    {
-                        "title": titulo if indice == 0 else continuacion,
-                        "description": "\n".join(grupo),
-                        "color": COLOR_UNDERCUT,
-                    }
-                ]
+    plural = "subastas" if len(todas) != 1 else "subasta"
+    mensaje = {
+        "embeds": [
+            {
+                "title": f"⚔️ Te han adelantado — {len(todas)} {plural}",
+                "description": descripcion,
+                "color": COLOR_UNDERCUT,
             }
-            messages.append((mensaje, suyas[hechas : hechas + len(grupo)]))
-            hechas += len(grupo)
-
-    if panel_url and messages:
-        # El panel es el unico sitio donde estan todas, incluidas las que hoy no
-        # han entrado en ningun mensaje; el enlace va una sola vez, al final.
-        enlace = f"\n[📊 Ver el panel con todas]({panel_url})"
-        ultimo = messages[-1][0]["embeds"][0]
-        if len(ultimo["description"]) + len(enlace) <= MAX_EMBED_DESCRIPTION:
-            ultimo["description"] += enlace
-        else:
-            mensaje = {
-                "embeds": [
-                    {
-                        "title": "📊 Todas tus subastas",
-                        "description": enlace.strip(),
-                        "color": COLOR_UNDERCUT,
-                    }
-                ]
-            }
-            messages.append((mensaje, []))
-
-    return messages
+        ]
+    }
+    return [(mensaje, todas)]
 
 
 def _venta_line(venta: Venta) -> str:
@@ -573,11 +520,7 @@ class DiscordNotifier:
         panel_url: str | None = None,
         orden: Mapping[tuple[str, str], int] | None = None,
     ) -> list[Undercut]:
-        """Envia los undercuts y devuelve los que de verdad han salido.
-
-        Como en `send_deals`, lo que no cabe no se marca como avisado y sale en
-        la pasada siguiente.
-        """
+        """Envia los undercuts y devuelve los nuevos que de verdad han salido."""
         # Por identidad y no por igualdad: una ya avisada puede ser igual a una
         # nueva, y esa no es de las que hay que marcar ahora.
         nuevas = {id(u) for u in undercuts}
@@ -591,7 +534,7 @@ class DiscordNotifier:
                 exc.entregados = entregados
                 raise
             entregados.extend(u for u in lleva if id(u) in nuevas)
-        return list(undercuts[:MAX_DEALS_PER_RUN])
+        return entregados
 
     def send_ventas(
         self, ventas: Sequence[Venta], orden: Mapping[tuple[str, str], int] | None = None
