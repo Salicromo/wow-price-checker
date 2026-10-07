@@ -369,6 +369,24 @@ def test_no_hay_tope_de_subastas():
     assert "• Pepe — 120" in texto(mensajes[0])
 
 
+def test_se_marcan_las_de_mas_de_80k():
+    contenido = texto(
+        build_undercut_messages(
+            [
+                un_undercut(oro_mio=120_000, oro_rival=110_000, auction_id=1),
+                un_undercut(oro_mio=80_001, oro_rival=80_001, auction_id=2),
+                un_undercut(oro_mio=80_000, oro_rival=70_000, auction_id=3),
+            ]
+        )[0]
+    )
+    assert "• Pepe — 3 (💰 2 de +80.000 g)" in contenido
+
+
+def test_sin_ninguna_cara_no_se_marca_nada():
+    contenido = texto(build_undercut_messages([un_undercut(oro_mio=9000)])[0])
+    assert "💰" not in contenido
+
+
 def test_cada_mensaje_es_una_tarjeta_con_su_color():
     mensaje = build_undercut_messages([un_undercut()])[0]
     assert len(mensaje["embeds"]) == 1

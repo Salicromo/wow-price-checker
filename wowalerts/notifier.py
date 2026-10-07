@@ -38,6 +38,8 @@ COLOR_VENTA = 0xD4AF37       # oro viejo: dinero que entra
 MAX_EMBED_DESCRIPTION = 4096
 # Tope propio de lineas por mensaje: mas de esto ya no se lee de un vistazo.
 MAX_UNDERCUT_LINES_PER_MESSAGE = 20
+# A partir de este precio (el tuyo) una subasta adelantada se marca en el aviso.
+UNDERCUT_CARO_GOLD = 80_000
 # Cuantas veces se espera lo que pide un 429 antes de rendirse. Es generoso a
 # proposito: esperar sale gratis y el aviso llega, rendirse lo pierde.
 MAX_ESPERAS_POR_LIMITE = 5
@@ -359,20 +361,25 @@ def _undercut_messages(
     todas = list(undercuts) + list(ya_avisados)
 
     # dict normal: conserva el orden de llegada para quien no este en `orden`.
-    por_personaje: dict[tuple[str, str, object], int] = {}
+    por_personaje: dict[tuple[str, str, object], list[Undercut]] = {}
     for undercut in todas:
         clave = (
             undercut.mine.character,
             undercut.mine.realm,
             undercut.mine.account,
         )
-        por_personaje[clave] = por_personaje.get(clave, 0) + 1
+        por_personaje.setdefault(clave, []).append(undercut)
 
     # Las cuentas salen en el orden de su primer personaje, asi que el orden de
     # personajes.yaml decide tambien que cuenta va primero.
     por_cuenta: dict[object, list[str]] = {}
-    for (character, _realm, account), cuantas in _en_orden(por_personaje, orden):
-        por_cuenta.setdefault(account, []).append(f"• {character} — {cuantas}")
+    for (character, _realm, account), suyas in _en_orden(por_personaje, orden):
+        linea = f"• {character} — {len(suyas)}"
+        # Las caras son las que mas merece la pena ir a recolocar primero.
+        caras = sum(1 for u in suyas if u.my_price_gold > UNDERCUT_CARO_GOLD)
+        if caras:
+            linea += f" (💰 {caras} de +{format_gold(UNDERCUT_CARO_GOLD)} g)"
+        por_cuenta.setdefault(account, []).append(linea)
 
     bloques = []
     for account, lineas in por_cuenta.items():
