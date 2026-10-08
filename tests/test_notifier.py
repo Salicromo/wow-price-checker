@@ -1,3 +1,5 @@
+import re
+
 import pytest
 import requests
 
@@ -8,7 +10,7 @@ from wowalerts.notifier import (
     MAX_DEALS_PER_RUN,
     DiscordError,
     DiscordNotifier,
-    build_embed,
+    _embed_chars,
     build_messages,
     format_gold,
     realm_names_for,
@@ -19,12 +21,14 @@ WEBHOOK = "https://discord.com/api/webhooks/1/abc"
 REALMS = {1305: "Dun Modr / Sanguino"}
 
 
-def make_deal(auction_id=1, price_gold=45_000, threshold_gold=90_000, confirmed=True):
+def make_deal(
+    auction_id=1, price_gold=45_000, threshold_gold=90_000, confirmed=True, ilvl=311
+):
     return Deal(
         auction_id=auction_id,
         item_id=5000,
         item_name="Greaves of the Noxious Depths",
-        ilvl=311 if confirmed else None,
+        ilvl=ilvl if confirmed else None,
         ilvl_confirmed=confirmed,
         price_copper=price_gold * COPPER_PER_GOLD,
         threshold_copper=threshold_gold * COPPER_PER_GOLD,
@@ -33,44 +37,88 @@ def make_deal(auction_id=1, price_gold=45_000, threshold_gold=90_000, confirmed=
     )
 
 
+def tarjetas(deals, realms=REALMS, **kwargs):
+    return [e for m in build_messages(deals, realms, **kwargs) for e in m["embeds"]]
+
+
+def lineas(embed):
+    return [l for l in embed["description"].splitlines() if l.startswith("• ")]
+
+
 def test_formato_de_oro_a_la_espanola():
     assert format_gold(1_234_567) == "1.234.567"
     assert format_gold(999) == "999"
 
 
-def test_el_embed_lleva_precio_ilvl_reino_y_enlace():
-    embed = build_embed(make_deal(), REALMS[1305])
+def test_la_linea_lleva_precio_descuento_reino_tope_y_enlace():
+    embed = tarjetas([make_deal()])[0]
 
-    assert embed["title"] == "Greaves of the Noxious Depths"
-    assert embed["url"].startswith("https://www.wowhead.com/item=5000")
-    assert "45.000" in embed["description"]
-    assert "ilvl **311**" in embed["description"]
-    assert "50%" in embed["description"]
+    assert embed["title"] == "ilvl 311 — 1 chollo"
     assert embed["color"] == COLOR_STEAL
-    assert {"name": "Reino", "value": "Dun Modr / Sanguino", "inline": True} in embed["fields"]
-    assert any(f["name"] == "Tiempo restante" for f in embed["fields"])
+    [linea] = lineas(embed)
+    assert "[Greaves of the Noxious Depths](https://www.wowhead.com/item=5000" in linea
+    assert "**45.000 g** (−50%)" in linea
+    assert "Dun Modr / Sanguino" in linea
+    assert "[tope 90.000](" in linea
+    assert "2 - 12 h" in linea
 
 
-def test_el_embed_avisa_cuando_el_ilvl_no_esta_confirmado():
-    embed = build_embed(make_deal(confirmed=False), REALMS[1305])
+def test_el_aviso_avisa_cuando_el_ilvl_no_esta_confirmado():
+    embed = tarjetas([make_deal(confirmed=False)])[0]
 
-    assert "sin confirmar" in embed["description"]
+    assert embed["title"] == "ilvl sin confirmar — 1 chollo"
     assert "antes de comprar" in embed["description"]
     assert embed["color"] == COLOR_UNCONFIRMED
 
 
-def test_cada_embed_del_mensaje_lleva_una_url_distinta():
-    """Discord fusiona los embeds de un mensaje que comparten url.
+def test_una_tarjeta_por_ilvl_de_mayor_a_menor():
+    """Agrupar evita una tarjeta por subasta y el scroll sin fin."""
+    deals = [
+        make_deal(1, ilvl=311),
+        make_deal(2, ilvl=328),
+        make_deal(3, ilvl=311),
+        make_deal(4, confirmed=False),
+        make_deal_sin_ilvl(),
+    ]
 
-    Varias subastas del mismo objeto tienen el mismo enlace de Wowhead, asi que
-    sin un ancla unica se veian todas como un solo embed.
-    """
-    deals = [make_deal(auction_id=i) for i in range(10)]
+    messages = build_messages(deals, REALMS)
 
-    urls = [e["url"] for e in build_messages(deals, REALMS)[0]["embeds"]]
+    assert len(messages) == 1
+    assert [e["title"] for e in messages[0]["embeds"]] == [
+        "ilvl 328 — 1 chollo",
+        "ilvl 311 — 2 chollos",
+        "ilvl sin confirmar — 1 chollo",
+        "Sin ilvl — 1 chollo",
+    ]
+    assert len(lineas(messages[0]["embeds"][1])) == 2
 
-    assert len(set(urls)) == len(urls)
-    assert all(u.startswith("https://www.wowhead.com/item=5000") for u in urls)
+
+def test_cada_tarjeta_dice_con_quien_ir_a_cada_reino():
+    otro = Deal(**{**make_deal(2).__dict__, "realm_id": 1084})
+    embed = tarjetas(
+        [make_deal(1), otro],
+        realms={**REALMS, 1084: "Dentarg / Tarren Mill"},
+        compradores={1305: "Pepe · WoW 1\nJuan · WoW 3", 1084: "Ana · WoW 2"},
+    )[0]
+
+    assert embed["fields"] == [
+        {
+            "name": "Ir con",
+            "value": "**Dun Modr / Sanguino**: Pepe · WoW 1, Juan · WoW 3\n"
+            "**Dentarg / Tarren Mill**: Ana · WoW 2",
+            "inline": False,
+        }
+    ]
+
+
+def test_el_icono_solo_cuando_la_tarjeta_es_un_unico_objeto():
+    icono = {5000: "https://icono/5000.jpg"}
+    solo = tarjetas([make_deal(1), make_deal(2)], icon_urls=icono)[0]
+    otro = Deal(**{**make_deal(2).__dict__, "item_id": 5002})
+    mezcla = tarjetas([make_deal(1), otro], icon_urls=icono)[0]
+
+    assert solo["thumbnail"] == {"url": "https://icono/5000.jpg"}
+    assert "thumbnail" not in mezcla
 
 
 def test_sin_chollos_no_se_genera_ningun_mensaje():
@@ -82,7 +130,8 @@ def test_un_solo_mensaje_con_cabecera_para_pocos_chollos():
 
     assert len(messages) == 1
     assert "2 chollos" in messages[0]["content"]
-    assert len(messages[0]["embeds"]) == 2
+    assert len(messages[0]["embeds"]) == 1
+    assert len(lineas(messages[0]["embeds"][0])) == 2
 
 
 def test_cabecera_en_singular_con_un_solo_chollo():
@@ -91,26 +140,42 @@ def test_cabecera_en_singular_con_un_solo_chollo():
     assert "chollos" not in messages[0]["content"]
 
 
-def test_se_reparte_en_mensajes_de_diez_embeds():
-    messages = build_messages([make_deal(i) for i in range(25)], REALMS)
+def test_muchos_chollos_respetan_los_limites_de_discord():
+    deals = [make_deal(i, ilvl=300 + i % 12) for i in range(MAX_DEALS_PER_RUN)]
 
-    assert [len(m["embeds"]) for m in messages] == [10, 10, 5]
+    messages = build_messages(deals, REALMS, compradores={1305: "Pepe · WoW 1"})
+
+    assert sum(len(lineas(e)) for m in messages for e in m["embeds"]) == len(deals)
+    for m in messages:
+        assert len(m["embeds"]) <= 10
+        assert sum(_embed_chars(e) for e in m["embeds"]) + len(m.get("content", "")) <= 6000
+        assert all(len(e["description"]) <= 4096 for e in m["embeds"])
     # Solo el primer mensaje lleva cabecera, para no repetirla.
     assert "content" in messages[0]
     assert all("content" not in m for m in messages[1:])
 
 
+def test_un_ilvl_con_muchos_chollos_sigue_en_otra_tarjeta():
+    deals = [make_deal(i) for i in range(30)]
+
+    titulos = [e["title"] for e in tarjetas(deals)]
+
+    assert titulos[0] == "ilvl 311 — 30 chollos"
+    assert len(titulos) > 1
+    assert all(t == "ilvl 311 · sigue" for t in titulos[1:])
+
+
 def test_se_recorta_y_se_avisa_de_los_omitidos():
     messages = build_messages([make_deal(i) for i in range(MAX_DEALS_PER_RUN + 7)], REALMS)
 
-    total = sum(len(m["embeds"]) for m in messages)
+    total = sum(len(lineas(e)) for m in messages for e in m["embeds"])
     assert total == MAX_DEALS_PER_RUN
     assert "7 mas" in messages[0]["content"]
 
 
 def test_reino_desconocido_se_muestra_por_su_id():
-    embed = build_messages([make_deal()], {})[0]["embeds"][0]
-    assert any(f["value"] == "Reino 1305" for f in embed["fields"])
+    embed = tarjetas([make_deal()], realms={})[0]
+    assert "Reino 1305" in embed["description"]
 
 
 def test_realm_names_for_consulta_una_vez_por_reino():
@@ -605,9 +670,9 @@ def make_deal_sin_ilvl(price_gold=45_000, threshold_gold=60_000):
 
 
 def test_un_objeto_sin_ilvl_no_se_avisa_como_ilvl_sin_confirmar():
-    embed = build_embed(make_deal_sin_ilvl(), REALMS[1305])
+    embed = tarjetas([make_deal_sin_ilvl()])[0]
 
-    assert "ilvl" not in embed["description"]
+    assert embed["title"] == "Sin ilvl — 1 chollo"
     assert "sin confirmar" not in embed["description"]
     # Y no sale en gris: el precio es tan fiable como el de cualquier otro.
     assert embed["color"] != COLOR_UNCONFIRMED
@@ -617,19 +682,16 @@ def test_un_objeto_sin_ilvl_no_se_avisa_como_ilvl_sin_confirmar():
 #  El enlace para ajustar el tope sin abrir config.yaml
 # ----------------------------------------------------------------------------
 
-def _campo(embed, nombre):
-    return next((c for c in embed["fields"] if c["name"] == nombre), None)
+def _url_tope(deal):
+    """El enlace del tope, que va en la propia linea del chollo."""
+    [linea] = lineas(tarjetas([deal])[0])
+    return re.search(r"\[tope [^\]]+\]\(([^)]+)\)", linea).group(1)
 
 
-def test_el_embed_lleva_enlace_para_ajustar_el_tope():
+def test_el_aviso_lleva_enlace_para_ajustar_el_tope():
     from urllib.parse import parse_qs, urlparse
 
-    embed = build_embed(make_deal(), REALMS[1305])
-    campo = _campo(embed, "Ajustar tope")
-    assert campo is not None
-
-    url = campo["value"].split("(")[1].rstrip(")")
-    partes = urlparse(url)
+    partes = urlparse(_url_tope(make_deal()))
     assert partes.path.endswith("/issues/new")
 
     query = parse_qs(partes.query)
@@ -644,9 +706,8 @@ def test_el_enlace_escapa_lo_que_haga_falta():
 
     deal = make_deal()
     deal = type(deal)(**{**deal.__dict__, "item_name": "Temple Delver's Mystic Helm"})
-    embed = build_embed(deal, REALMS[1305])
 
-    url = _campo(embed, "Ajustar tope")["value"].split("(")[1].rstrip(")")
+    url = _url_tope(deal)
     assert " " not in url
     query = parse_qs(urlparse(url).query)
     assert query["objeto"] == ["Temple Delver's Mystic Helm"]
@@ -657,27 +718,22 @@ def test_un_chollo_de_precio_unico_no_lleva_ilvl_en_el_enlace():
 
     deal = make_deal()
     deal = type(deal)(**{**deal.__dict__, "sin_ilvl": True, "ilvl": None})
-    embed = build_embed(deal, REALMS[1305])
 
-    url = _campo(embed, "Ajustar tope")["value"].split("(")[1].rstrip(")")
-    assert "ilvl" not in parse_qs(urlparse(url).query)
+    assert "ilvl" not in parse_qs(urlparse(_url_tope(deal)).query)
 
 
 def test_un_ilvl_sin_confirmar_no_lleva_ilvl_en_el_enlace():
     """Con el ilvl en duda, prerrellenarlo invitaria a cambiar el tope del que no es."""
     from urllib.parse import parse_qs, urlparse
 
-    embed = build_embed(make_deal(confirmed=False), REALMS[1305])
-
-    url = _campo(embed, "Ajustar tope")["value"].split("(")[1].rstrip(")")
+    url = _url_tope(make_deal(confirmed=False))
     assert "ilvl" not in parse_qs(urlparse(url).query)
 
 
 def test_el_repositorio_sale_del_entorno_en_actions(monkeypatch):
     monkeypatch.setenv("GITHUB_REPOSITORY", "otro/repo")
-    embed = build_embed(make_deal(), REALMS[1305])
 
-    assert "github.com/otro/repo/issues/new" in _campo(embed, "Ajustar tope")["value"]
+    assert "github.com/otro/repo/issues/new" in _url_tope(make_deal())
 
 
 # -- El ilvl en las lineas de venta ----------------------------
@@ -770,18 +826,21 @@ def test_un_429_eterno_acaba_rindiendose(requests_mock):
 
 
 def test_si_falla_a_mitad_el_error_dice_que_chollos_si_llegaron(requests_mock):
-    """Diez chollos por mensaje: si cae el segundo, los del primero ya estan en
+    """Si cae el segundo mensaje, los chollos del primero ya estan en
     Discord y hay que poder marcarlos, o la pasada siguiente los repite."""
     requests_mock.post(WEBHOOK, [{"status_code": 204}, {"status_code": 500}])
     notifier = DiscordNotifier(
         WEBHOOK, session=requests.Session(), max_retries=0, sleep=lambda _: None
     )
-    deals = [make_deal(auction_id=i) for i in range(15)]
+    deals = [make_deal(auction_id=i) for i in range(30)]
+    primero = build_messages(deals, REALMS)[0]
+    en_el_primero = sum(len(lineas(e)) for e in primero["embeds"])
+    assert 0 < en_el_primero < len(deals)
 
     with pytest.raises(DiscordError) as fallo:
         notifier.send_deals(deals, REALMS)
 
-    assert fallo.value.entregados == deals[:10]
+    assert fallo.value.entregados == deals[:en_el_primero]
 
 
 def test_si_falla_el_aviso_de_undercuts_no_se_entrego_ninguno(requests_mock):

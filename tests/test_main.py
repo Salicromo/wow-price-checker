@@ -90,6 +90,15 @@ def mensajes_discord(requests_mock):
     return [r.json() for r in requests_mock.request_history if r.url == WEBHOOK]
 
 
+def chollos_en(mensajes):
+    """Cuantos chollos llevan los mensajes: una linea por chollo."""
+    return sum(
+        e["description"].count("\n• ") + e["description"].startswith("• ")
+        for m in mensajes
+        for e in m["embeds"]
+    )
+
+
 def test_una_pasada_completa_avisa_del_chollo(entorno):
     entorno["mock"].get(
         f"{BASE}/connected-realm/1305/auctions",
@@ -101,9 +110,9 @@ def test_una_pasada_completa_avisa_del_chollo(entorno):
     enviados = mensajes_discord(entorno["mock"])
     assert len(enviados) == 1
     embed = enviados[0]["embeds"][0]
-    assert embed["title"] == "Greaves of the Noxious Depths"
+    assert "Greaves of the Noxious Depths" in embed["description"]
     assert "45.000" in embed["description"]
-    assert any(f["value"] == "Dun Modr" for f in embed["fields"])
+    assert "Dun Modr" in embed["description"]
 
 
 def test_el_aviso_lleva_miniatura_y_hora_del_volcado(entorno):
@@ -144,7 +153,7 @@ def test_un_fallo_al_pedir_el_icono_no_impide_el_aviso(entorno):
 
     embed = mensajes_discord(entorno["mock"])[0]["embeds"][0]
     assert "thumbnail" not in embed
-    assert embed["title"] == "Greaves of the Noxious Depths"
+    assert "Greaves of the Noxious Depths" in embed["description"]
 
 
 def test_ningun_chollo_se_pierde_cuando_hay_mas_de_los_que_caben(entorno):
@@ -162,11 +171,11 @@ def test_ningun_chollo_se_pierde_cuando_hay_mas_de_los_que_caben(entorno):
     )
 
     ejecutar(entorno)
-    primera = sum(len(m["embeds"]) for m in mensajes_discord(entorno["mock"]))
+    primera = chollos_en(mensajes_discord(entorno["mock"]))
     assert primera == MAX_DEALS_PER_RUN
 
     ejecutar(entorno)
-    total_enviado = sum(len(m["embeds"]) for m in mensajes_discord(entorno["mock"]))
+    total_enviado = chollos_en(mensajes_discord(entorno["mock"]))
     assert total_enviado == total, "los 7 sobrantes tienen que llegar en la 2a pasada"
 
 
@@ -384,7 +393,7 @@ def test_si_el_volcado_va_tarde_se_espera_y_se_vuelve_a_mirar(
     # Se vuelve en cuanto aparece, no al agotar los 120 s de vigilancia.
     assert esperas == [CADA]
     embed = mensajes_discord(entorno["mock"])[0]["embeds"][0]
-    assert embed["title"] == "Greaves of the Noxious Depths"
+    assert "Greaves of the Noxious Depths" in embed["description"]
 
 
 def test_un_chollo_visto_solo_en_el_primer_intento_se_envia_igual(
@@ -409,7 +418,8 @@ def test_un_chollo_visto_solo_en_el_primer_intento_se_envia_igual(
     assert len(escaneos(entorno["mock"])) == 3
     embeds = [e for m in mensajes_discord(entorno["mock"]) for e in m["embeds"]]
     assert len(embeds) == 1
-    assert embeds[0]["title"] == "Greaves of the Noxious Depths"
+    assert chollos_en(mensajes_discord(entorno["mock"])) == 1
+    assert "Greaves of the Noxious Depths" in embeds[0]["description"]
 
 
 def test_no_se_avisa_dos_veces_del_mismo_chollo_entre_intentos(
@@ -656,7 +666,7 @@ def test_espera_al_volcado_nuevo_si_esta_a_punto_de_salir(
 
     # El chollo sale del volcado nuevo, no del que estaba a punto de caducar.
     embed = mensajes_discord(entorno["mock"])[0]["embeds"][0]
-    assert embed["title"] == "Greaves of the Noxious Depths"
+    assert "Greaves of the Noxious Depths" in embed["description"]
     assert esperas == [CADA]
 
 
@@ -1430,23 +1440,25 @@ def test_si_fallan_las_ventas_los_undercuts_enviados_no_se_repiten(
 
 
 def test_si_discord_cae_a_mitad_lo_que_ya_llego_no_se_repite(entorno):
-    """Quince chollos van en dos mensajes. Si cae el segundo, los diez del
-    primero ya estan en Discord: la pasada siguiente solo debe mandar los cinco
-    que faltan, no los quince otra vez."""
+    """Treinta chollos no caben en un mensaje. Si cae el segundo, los del
+    primero ya estan en Discord: la pasada siguiente solo debe mandar los que
+    faltan, no los treinta otra vez."""
     entorno["mock"].get(
         f"{BASE}/connected-realm/1305/auctions",
-        json={"auctions": [subasta(i, 45_000 * 10_000) for i in range(1, 16)]},
+        json={"auctions": [subasta(i, 45_000 * 10_000) for i in range(1, 31)]},
     )
     entorno["mock"].post(WEBHOOK, [{"status_code": 204}] + [{"status_code": 500}] * 4)
 
     assert ejecutar(entorno) == cli.EXIT_CONFIG_ERROR
+    llegaron = chollos_en(mensajes_discord(entorno["mock"])[:1])
+    assert 0 < llegaron < 30
 
     entorno["mock"].post(WEBHOOK, status_code=204)
     antes = len(mensajes_discord(entorno["mock"]))
     assert ejecutar(entorno) == cli.EXIT_OK
 
     nuevos = mensajes_discord(entorno["mock"])[antes:]
-    assert sum(len(m["embeds"]) for m in nuevos) == 5
+    assert chollos_en(nuevos) == 30 - llegaron
 
 
 def test_si_cae_el_webhook_de_undercuts_la_pasada_falla_limpia(

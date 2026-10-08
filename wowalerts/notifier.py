@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 
 # Limites del webhook de Discord.
 MAX_EMBEDS_PER_MESSAGE = 10
+# Texto total entre todos los embeds de un mensaje.
+MAX_CHARS_PER_MESSAGE = 6000
 # Tope propio: mas de esto en una pasada es ruido, no una oportunidad.
 MAX_DEALS_PER_RUN = 50
 
@@ -36,6 +38,8 @@ COLOR_UNDERCUT = 0xC0392B    # rojo oscuro: te han adelantado
 COLOR_VENTA = 0xD4AF37       # oro viejo: dinero que entra
 # Limite duro de Discord para la descripcion de un embed.
 MAX_EMBED_DESCRIPTION = 4096
+# Limite duro de Discord para el valor de un campo.
+MAX_FIELD_VALUE = 1024
 # Tope propio de lineas por mensaje: mas de esto ya no se lee de un vistazo.
 MAX_UNDERCUT_LINES_PER_MESSAGE = 20
 # A partir de este precio (el tuyo) una subasta adelantada se marca en el aviso.
@@ -86,11 +90,6 @@ def _time_left_label(raw: str) -> str:
 def _wowhead_url(deal) -> str:
     """Enlace a la ficha de lo subastado.
 
-    El ancla final no le dice nada a Wowhead, pero hace que cada embed tenga una
-    url distinta. Discord fusiona en uno solo los embeds de un mismo mensaje que
-    comparten url (es su galeria de imagenes), y sin esto varias subastas del
-    mismo objeto se veian como una sola.
-
     Las mascotas van por /pet: todas comparten el objeto 82800, asi que un
     enlace /item las llevaria a la jaula vacia en vez de a la mascota.
     """
@@ -99,7 +98,7 @@ def _wowhead_url(deal) -> str:
         if deal.pet_species_id is not None
         else f"item={deal.item_id}"
     )
-    return f"https://www.wowhead.com/{destino}#a{deal.auction_id}"
+    return f"https://www.wowhead.com/{destino}"
 
 
 def _repo() -> str:
@@ -137,87 +136,134 @@ def _color_for(deal: Deal) -> int:
     return COLOR_GOOD
 
 
-def build_embed(
-    deal: Deal,
-    realm_name: str,
-    icon_url: str | None = None,
-    snapshot_at: datetime | None = None,
-    quien_compra: str | None = None,
-) -> dict[str, Any]:
-    """Tarjeta de Discord para un chollo."""
-    if deal.sin_ilvl:
-        # Un patron no escala, asi que no hay ilvl del que hablar. El separador
-        # viaja dentro del texto para no dejar un punto suelto colgando.
-        ilvl_text = ""
-    elif deal.ilvl_confirmed:
-        ilvl_text = f"  ·  ilvl **{deal.ilvl}**"
-    else:
-        ilvl_text = "  ·  ilvl **sin confirmar**"
+def _deal_line(deal: Deal, realm_name: str) -> str:
+    """Una linea del aviso: que es, cuanto cuesta, donde y contra que tope.
 
-    description = (
-        f"**{format_gold(deal.price_gold)} de oro**{ilvl_text}\n"
-        f"Un {deal.discount_pct:.0f}% por debajo de tu limite "
-        f"({format_gold(deal.threshold_gold)} de oro)."
-    )
-    if not deal.ilvl_confirmed and not deal.sin_ilvl:
-        description += (
-            "\n\n> No he podido determinar el ilvl de esta subasta, asi que la "
-            "he comparado con tu precio mas bajo para ese objeto. Comprueba el "
-            "ilvl en el juego antes de comprar."
-        )
-
-    fields = [
-        {"name": "Reino", "value": realm_name, "inline": True},
-        {
-            "name": "Tiempo restante",
-            "value": _time_left_label(deal.time_left),
-            "inline": True,
-        },
-    ]
+    El ilvl no va aqui sino en el titulo de la tarjeta, que agrupa por el. El
+    tope es a la vez el enlace para cambiarlo: cuando ves que a ese precio no
+    era chollo, lo que sobra es el tope, no la subasta, y el formulario llega
+    con el objeto y el ilvl ya puestos.
+    """
+    linea = f"• [{nombre_con_ilvl(deal.item_name, None)}]({_wowhead_url(deal)})"
     if deal.quantity > 1:
-        fields.append(
-            {"name": "Cantidad", "value": str(deal.quantity), "inline": True}
-        )
-    if quien_compra:
-        # Un chollo en un reino donde no tienes a nadie no se puede comprar, y
-        # saberlo antes de abrir el juego ahorra el viaje.
-        fields.append({"name": "Ir con", "value": quien_compra, "inline": False})
+        linea += f" ×{deal.quantity}"
+    return (
+        f"{linea} — **{format_gold(deal.price_gold)} g** "
+        f"(−{deal.discount_pct:.0f}%) · {realm_name} · "
+        f"[tope {format_gold(deal.threshold_gold)}]({_ajustar_tope_url(deal)}) · "
+        f"{_time_left_label(deal.time_left)}"
+    )
 
-    # Cuando el aviso llega y ves que a ese precio no era chollo, lo que sobra es
-    # el tope, no la subasta. Esto lleva al formulario con el objeto y el ilvl
-    # ya puestos, para corregirlo sin abrir config.yaml.
-    fields.append({
-        "name": "Ajustar tope",
-        "value": f"[cambiar el limite]({_ajustar_tope_url(deal)})",
-        "inline": False,
-    })
 
-    embed: dict[str, Any] = {
-        "title": deal.item_name,
-        # El ancla final no le dice nada a Wowhead, pero hace que cada embed
-        # tenga una url distinta. Discord fusiona en uno solo los embeds de un
-        # mismo mensaje que comparten url (es su galeria de imagenes), y sin
-        # esto varias subastas del mismo objeto se veian como una sola.
-        "url": _wowhead_url(deal),
-        "color": _color_for(deal),
-        "description": description,
-        "fields": fields,
-        "footer": {"text": f"Subasta {deal.auction_id} · reino {deal.realm_id}"},
-    }
+NOTA_ILVL_SIN_CONFIRMAR = (
+    "> ⚠️ No he podido determinar el ilvl de estas subastas, asi que las he "
+    "comparado con tu precio mas bajo para cada objeto. Comprueba el ilvl en "
+    "el juego antes de comprar."
+)
 
-    if icon_url:
-        embed["thumbnail"] = {"url": icon_url}
 
-    if snapshot_at:
-        # Discord lo pinta junto al pie y lo convierte a la zona horaria de cada
-        # lector. Es la hora del volcado de Blizzard, no la del envio: lo que
-        # importa es cuando se vio ese precio.
-        # Discord pinta el pie como "texto • fecha", asi que el texto se corta
-        # aqui para que se lea "... · precio visto • 30/08/2026 13:31".
-        embed["timestamp"] = snapshot_at.isoformat()
-        embed["footer"]["text"] += " · precio visto"
+def _grupo_ilvl(deal: Deal) -> tuple[int, int]:
+    """Clave para ordenar las tarjetas: ilvl de mayor a menor, y despues los
+    de ilvl dudoso y lo que no escala, que no tienen sitio en esa escala."""
+    if deal.sin_ilvl:
+        return (2, 0)
+    if not deal.ilvl_confirmed or deal.ilvl is None:
+        return (1, 0)
+    return (0, -deal.ilvl)
 
-    return embed
+
+def _titulo_grupo(clave: tuple[int, int]) -> str:
+    tipo, menos_ilvl = clave
+    if tipo == 0:
+        return f"ilvl {-menos_ilvl}"
+    return "ilvl sin confirmar" if tipo == 1 else "Sin ilvl"
+
+
+def _ir_con(
+    deals: Sequence[Deal],
+    realm_names: Mapping[int, str],
+    compradores: Mapping[int, str],
+) -> str:
+    """Con quien comprar en cada reino de la tarjeta, una linea por reino."""
+    lineas: list[str] = []
+    for realm_id in dict.fromkeys(d.realm_id for d in deals):
+        quien = compradores.get(realm_id)
+        if quien:
+            nombre = realm_names.get(realm_id, f"Reino {realm_id}")
+            lineas.append(f"**{nombre}**: " + quien.replace("\n", ", "))
+    valor = "\n".join(lineas)
+    if len(valor) > MAX_FIELD_VALUE:
+        valor = valor[: MAX_FIELD_VALUE - 1] + "…"
+    return valor
+
+
+def _grupo_embeds(
+    clave: tuple[int, int],
+    deals: Sequence[Deal],
+    realm_names: Mapping[int, str],
+    icon_urls: Mapping[int, str],
+    snapshot_at: datetime | None,
+    compradores: Mapping[int, str],
+) -> list[tuple[dict[str, Any], list[Deal]]]:
+    """Las tarjetas de un ilvl: una linea por chollo.
+
+    Una tarjeta por subasta obligaba a hacer scroll sin fin. Si las lineas no
+    caben en una, siguen en otra con el titulo "sigue".
+    """
+    lineas = [
+        _deal_line(d, realm_names.get(d.realm_id, f"Reino {d.realm_id}"))
+        for d in deals
+    ]
+    dudoso = clave[0] == 1
+    presupuesto = MAX_EMBED_DESCRIPTION
+    if dudoso:
+        presupuesto -= len(NOTA_ILVL_SIN_CONFIRMAR) + 2
+
+    base = _titulo_grupo(clave)
+    plural = "chollos" if len(deals) != 1 else "chollo"
+
+    resultado: list[tuple[dict[str, Any], list[Deal]]] = []
+    inicio = 0
+    for indice, grupo in enumerate(_repartir(lineas, presupuesto)):
+        suyos = list(deals[inicio : inicio + len(grupo)])
+        inicio += len(grupo)
+
+        descripcion = "\n".join(grupo)
+        if dudoso:
+            descripcion += "\n\n" + NOTA_ILVL_SIN_CONFIRMAR
+
+        embed: dict[str, Any] = {
+            "title": f"{base} — {len(deals)} {plural}" if indice == 0 else f"{base} · sigue",
+            # El color del mejor chollo de la tarjeta: es lo que hace mirarla.
+            "color": _color_for(max(suyos, key=lambda d: d.discount_pct)),
+            "description": descripcion,
+        }
+        ir_con = _ir_con(suyos, realm_names, compradores)
+        if ir_con:
+            # Un chollo en un reino donde no tienes a nadie no se puede comprar,
+            # y saberlo antes de abrir el juego ahorra el viaje.
+            embed["fields"] = [{"name": "Ir con", "value": ir_con, "inline": False}]
+        icono = icon_urls.get(suyos[0].item_id)
+        if icono and len({d.item_id for d in suyos}) == 1:
+            # Solo cuando toda la tarjeta es el mismo objeto: con varios, un
+            # unico icono diria que es lo que no es.
+            embed["thumbnail"] = {"url": icono}
+        if snapshot_at:
+            # Discord lo pinta junto al pie en la zona horaria de cada lector.
+            # Es la hora del volcado de Blizzard, no la del envio: lo que
+            # importa es cuando se vio ese precio.
+            embed["timestamp"] = snapshot_at.isoformat()
+            embed["footer"] = {"text": "precio visto"}
+
+        resultado.append((embed, suyos))
+    return resultado
+
+
+def _embed_chars(embed: Mapping[str, Any]) -> int:
+    """Lo que Discord cuenta para su limite de texto por mensaje."""
+    total = len(embed.get("title", "")) + len(embed.get("description", ""))
+    total += sum(len(f["name"]) + len(f["value"]) for f in embed.get("fields", []))
+    return total + len(embed.get("footer", {}).get("text", ""))
 
 
 def deals_to_send(deals: Sequence[Deal]) -> list[Deal]:
@@ -236,10 +282,27 @@ def build_messages(
     snapshot_at: datetime | None = None,
     compradores: Mapping[int, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Convierte los chollos en mensajes listos para el webhook.
+    """Los mensajes del aviso de chollos; ver `_deal_messages`."""
+    return [
+        mensaje
+        for mensaje, _ in _deal_messages(
+            deals, realm_names, icon_urls, snapshot_at, compradores
+        )
+    ]
 
-    Se agrupan de diez en diez (el maximo que admite Discord por mensaje) y se
-    recorta a `MAX_DEALS_PER_RUN`, avisando de cuantos quedan pendientes.
+
+def _deal_messages(
+    deals: Sequence[Deal],
+    realm_names: Mapping[int, str],
+    icon_urls: Mapping[int, str] | None = None,
+    snapshot_at: datetime | None = None,
+    compradores: Mapping[int, str] | None = None,
+) -> list[tuple[dict[str, Any], list[Deal]]]:
+    """Los mensajes listos para el webhook, junto con los chollos de cada uno.
+
+    Una tarjeta por ilvl, de mayor a menor, y tantas tarjetas por mensaje como
+    admite Discord (diez, y 6000 caracteres entre todas). Se recorta a
+    `MAX_DEALS_PER_RUN`, avisando de cuantos quedan pendientes.
     """
     if not deals:
         return []
@@ -252,25 +315,41 @@ def build_messages(
     if omitted:
         header += f" (y {omitted} mas que te envio en la proxima pasada)"
 
-    messages: list[dict[str, Any]] = []
-    for start in range(0, len(shown), MAX_EMBEDS_PER_MESSAGE):
-        chunk = shown[start : start + MAX_EMBEDS_PER_MESSAGE]
-        message: dict[str, Any] = {
-            "embeds": [
-                build_embed(
-                    deal,
-                    realm_names.get(deal.realm_id, f"Reino {deal.realm_id}"),
-                    (icon_urls or {}).get(deal.item_id),
-                    snapshot_at,
-                    (compradores or {}).get(deal.realm_id),
-                )
-                for deal in chunk
-            ]
-        }
-        if start == 0:
-            message["content"] = header
-        messages.append(message)
+    por_ilvl: dict[tuple[int, int], list[Deal]] = {}
+    for deal in shown:
+        por_ilvl.setdefault(_grupo_ilvl(deal), []).append(deal)
 
+    tarjetas: list[tuple[dict[str, Any], list[Deal]]] = []
+    for clave in sorted(por_ilvl):
+        tarjetas.extend(
+            _grupo_embeds(
+                clave,
+                por_ilvl[clave],
+                realm_names,
+                icon_urls or {},
+                snapshot_at,
+                compradores or {},
+            )
+        )
+
+    messages: list[tuple[dict[str, Any], list[Deal]]] = []
+    embeds: list[dict[str, Any]] = []
+    lleva: list[Deal] = []
+    largo = len(header)
+    for embed, suyos in tarjetas:
+        tamano = _embed_chars(embed)
+        if embeds and (
+            len(embeds) >= MAX_EMBEDS_PER_MESSAGE
+            or largo + tamano > MAX_CHARS_PER_MESSAGE
+        ):
+            messages.append(({"embeds": embeds}, lleva))
+            embeds, lleva, largo = [], [], 0
+        embeds.append(embed)
+        lleva.extend(suyos)
+        largo += tamano
+    messages.append(({"embeds": embeds}, lleva))
+
+    messages[0][0]["content"] = header
     return messages
 
 
@@ -507,18 +586,18 @@ class DiscordNotifier:
         llama marcar como avisados solo los que de verdad han salido. Marcarlos
         todos haria desaparecer para siempre los que no cupieron en el aviso.
         """
-        messages = build_messages(
+        entregados: list[Deal] = []
+        for message, lleva in _deal_messages(
             deals, realm_names, icon_urls, snapshot_at, compradores
-        )
-        shown = deals_to_send(deals)
-        for indice, message in enumerate(messages):
+        ):
             try:
                 self._post(message)
             except DiscordError as exc:
-                # Van de diez en diez: lo de los mensajes anteriores ya llego.
-                exc.entregados = shown[: indice * MAX_EMBEDS_PER_MESSAGE]
+                # Lo de los mensajes anteriores ya llego.
+                exc.entregados = entregados
                 raise
-        return shown
+            entregados.extend(lleva)
+        return entregados
 
     def send_undercuts(
         self,
