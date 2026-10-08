@@ -38,8 +38,6 @@ COLOR_UNDERCUT = 0xC0392B    # rojo oscuro: te han adelantado
 COLOR_VENTA = 0xD4AF37       # oro viejo: dinero que entra
 # Limite duro de Discord para la descripcion de un embed.
 MAX_EMBED_DESCRIPTION = 4096
-# Limite duro de Discord para el valor de un campo.
-MAX_FIELD_VALUE = 1024
 # Tope propio de lineas por mensaje: mas de esto ya no se lee de un vistazo.
 MAX_UNDERCUT_LINES_PER_MESSAGE = 20
 # A partir de este precio (el tuyo) una subasta adelantada se marca en el aviso.
@@ -136,20 +134,23 @@ def _color_for(deal: Deal) -> int:
     return COLOR_GOOD
 
 
-def _deal_line(deal: Deal, realm_name: str) -> str:
-    """Una linea del aviso: que es, cuanto cuesta, donde y contra que tope.
+def _deal_line(deal: Deal, quien: str) -> str:
+    """Una linea del aviso: que es, cuanto cuesta, con quien ir y contra que tope.
 
-    El ilvl no va aqui sino en el titulo de la tarjeta, que agrupa por el. El
-    tope es a la vez el enlace para cambiarlo: cuando ves que a ese precio no
-    era chollo, lo que sobra es el tope, no la subasta, y el formulario llega
-    con el objeto y el ilvl ya puestos.
+    El ilvl no va aqui sino en el titulo de la tarjeta, que agrupa por el. Con
+    quien ir va en lugar del reino porque es lo que decide el viaje: el
+    personaje y la cuenta con que entrar.
+
+    El tope es a la vez el enlace para cambiarlo: cuando ves que a ese precio
+    no era chollo, lo que sobra es el tope, no la subasta, y el formulario
+    llega con el objeto y el ilvl ya puestos.
     """
     linea = f"• [{nombre_con_ilvl(deal.item_name, None)}]({_wowhead_url(deal)})"
     if deal.quantity > 1:
         linea += f" ×{deal.quantity}"
     return (
         f"{linea} — **{format_gold(deal.price_gold)} g** "
-        f"(−{deal.discount_pct:.0f}%) · {realm_name} · "
+        f"(−{deal.discount_pct:.0f}%) · {quien} · "
         f"[tope {format_gold(deal.threshold_gold)}]({_ajustar_tope_url(deal)}) · "
         f"{_time_left_label(deal.time_left)}"
     )
@@ -179,22 +180,14 @@ def _titulo_grupo(clave: tuple[int, int]) -> str:
     return "ilvl sin confirmar" if tipo == 1 else "Sin ilvl"
 
 
-def _ir_con(
-    deals: Sequence[Deal],
-    realm_names: Mapping[int, str],
-    compradores: Mapping[int, str],
+def _con_quien(
+    deal: Deal, realm_names: Mapping[int, str], compradores: Mapping[int, str]
 ) -> str:
-    """Con quien comprar en cada reino de la tarjeta, una linea por reino."""
-    lineas: list[str] = []
-    for realm_id in dict.fromkeys(d.realm_id for d in deals):
-        quien = compradores.get(realm_id)
-        if quien:
-            nombre = realm_names.get(realm_id, f"Reino {realm_id}")
-            lineas.append(f"**{nombre}**: " + quien.replace("\n", ", "))
-    valor = "\n".join(lineas)
-    if len(valor) > MAX_FIELD_VALUE:
-        valor = valor[: MAX_FIELD_VALUE - 1] + "…"
-    return valor
+    """Con quien comprar el chollo; el reino solo si no se sabe."""
+    quien = compradores.get(deal.realm_id)
+    if quien:
+        return quien.replace("\n", ", ")
+    return realm_names.get(deal.realm_id, f"Reino {deal.realm_id}")
 
 
 def _grupo_embeds(
@@ -210,10 +203,7 @@ def _grupo_embeds(
     Una tarjeta por subasta obligaba a hacer scroll sin fin. Si las lineas no
     caben en una, siguen en otra con el titulo "sigue".
     """
-    lineas = [
-        _deal_line(d, realm_names.get(d.realm_id, f"Reino {d.realm_id}"))
-        for d in deals
-    ]
+    lineas = [_deal_line(d, _con_quien(d, realm_names, compradores)) for d in deals]
     dudoso = clave[0] == 1
     presupuesto = MAX_EMBED_DESCRIPTION
     if dudoso:
@@ -238,11 +228,6 @@ def _grupo_embeds(
             "color": _color_for(max(suyos, key=lambda d: d.discount_pct)),
             "description": descripcion,
         }
-        ir_con = _ir_con(suyos, realm_names, compradores)
-        if ir_con:
-            # Un chollo en un reino donde no tienes a nadie no se puede comprar,
-            # y saberlo antes de abrir el juego ahorra el viaje.
-            embed["fields"] = [{"name": "Ir con", "value": ir_con, "inline": False}]
         icono = icon_urls.get(suyos[0].item_id)
         if icono and len({d.item_id for d in suyos}) == 1:
             # Solo cuando toda la tarjeta es el mismo objeto: con varios, un

@@ -93,7 +93,7 @@ def test_una_tarjeta_por_ilvl_de_mayor_a_menor():
     assert len(lineas(messages[0]["embeds"][1])) == 2
 
 
-def test_cada_tarjeta_dice_con_quien_ir_a_cada_reino():
+def test_cada_linea_dice_con_quien_ir_en_lugar_del_reino():
     otro = Deal(**{**make_deal(2).__dict__, "realm_id": 1084})
     embed = tarjetas(
         [make_deal(1), otro],
@@ -101,14 +101,16 @@ def test_cada_tarjeta_dice_con_quien_ir_a_cada_reino():
         compradores={1305: "Pepe · WoW 1\nJuan · WoW 3", 1084: "Ana · WoW 2"},
     )[0]
 
-    assert embed["fields"] == [
-        {
-            "name": "Ir con",
-            "value": "**Dun Modr / Sanguino**: Pepe · WoW 1, Juan · WoW 3\n"
-            "**Dentarg / Tarren Mill**: Ana · WoW 2",
-            "inline": False,
-        }
-    ]
+    primera, segunda = lineas(embed)
+    assert "(−50%) · Pepe · WoW 1, Juan · WoW 3 · [tope" in primera
+    assert "(−50%) · Ana · WoW 2 · [tope" in segunda
+    assert "Dun Modr" not in embed["description"]
+    assert "fields" not in embed
+
+
+def test_sin_personajes_conocidos_la_linea_dice_el_reino():
+    [linea] = lineas(tarjetas([make_deal()])[0])
+    assert "(−50%) · Dun Modr / Sanguino · [tope" in linea
 
 
 def test_el_icono_solo_cuando_la_tarjeta_es_un_unico_objeto():

@@ -112,7 +112,6 @@ def test_una_pasada_completa_avisa_del_chollo(entorno):
     embed = enviados[0]["embeds"][0]
     assert "Greaves of the Noxious Depths" in embed["description"]
     assert "45.000" in embed["description"]
-    assert "Dun Modr" in embed["description"]
 
 
 def test_el_aviso_lleva_miniatura_y_hora_del_volcado(entorno):
