@@ -31,7 +31,7 @@ items:
   - name: "Greaves of the Noxious Depths"
     max_price_by_ilvl:
       { 295: 6999, 298: 12000, 305: 10000, 308: 13000, 311: 35000,
-        318: 80000, 321: 90000, 324: 100000, 328: 200000 }
+        318: 80000, 321: 90000, 324: 100000, 328: 170000 }
 
   - name: "Temple Delver's Mystic Helm"
     max_price_by_ilvl:
@@ -50,7 +50,7 @@ items:
 
   - name: "Pauldrons of the Forgotten Sacrifice"
     max_price_by_ilvl:
-      { 295: 9000, 298: 12000, 305: 40000, 308: 40000, 311: 60000,
+      { 295: 9000, 298: 12000, 305: 25000, 308: 40000, 311: 60000,
         318: 125000, 321: 140000, 324: 150000, 328: 200000 }
 
   - name: "Venom Rite Mantle"
