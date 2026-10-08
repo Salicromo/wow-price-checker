@@ -300,7 +300,7 @@ bonus_ilvl_map:
 settings:
   # Lo cambia el interruptor de avisos de la app (ver aplicar_avisos.py).
   # En pausa se sigue vigilando, pero no se envia nada a Discord.
-  avisos_pausados: false
+  avisos_pausados: true
   # Si no se puede determinar el ilvl de una subasta, avisar igualmente cuando
   # el precio este por debajo del umbral MAS BARATO de ese objeto. La alerta
   # sale marcada como "ilvl sin confirmar".
