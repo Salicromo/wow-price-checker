@@ -134,50 +134,65 @@ def _color_for(deal: Deal) -> int:
     return COLOR_GOOD
 
 
-def _deal_line(deal: Deal, quien: str) -> str:
-    """Una linea del aviso: que es, cuanto cuesta, con quien ir y contra que tope.
+def _cabecera(deal: Deal) -> str:
+    """El subtitulo de un objeto: su nombre con el ilvl y su tope.
 
-    El ilvl no va aqui sino en el titulo de la tarjeta, que agrupa por el. Con
-    quien ir va en lugar del reino porque es lo que decide el viaje: el
-    personaje y la cuenta con que entrar.
-
-    El tope es a la vez el enlace para cambiarlo: cuando ves que a ese precio
-    no era chollo, lo que sobra es el tope, no la subasta, y el formulario
-    llega con el objeto y el ilvl ya puestos.
+    El mismo objeto a otro ilvl es otro producto con su propio tope, asi que va
+    en su propio subtitulo. El nombre enlaza a Wowhead y el tope al formulario
+    para cambiarlo: cuando ves que a ese precio no era chollo, lo que sobra es
+    el tope, no la subasta, y el formulario llega con el objeto y el ilvl ya
+    puestos.
     """
-    linea = f"• [{nombre_con_ilvl(deal.item_name, None)}]({_wowhead_url(deal)})"
-    if deal.quantity > 1:
-        linea += f" ×{deal.quantity}"
+    if deal.sin_ilvl:
+        # Un patron no escala, asi que no hay ilvl del que hablar.
+        nombre = nombre_con_ilvl(deal.item_name, None)
+    elif deal.ilvl_confirmed:
+        nombre = nombre_con_ilvl(deal.item_name, deal.ilvl)
+    else:
+        nombre = nombre_con_ilvl(deal.item_name, None) + " (ilvl ⚠️)"
     return (
-        f"{linea} — **{format_gold(deal.price_gold)} g** "
-        f"(−{deal.discount_pct:.0f}%) · {quien} · "
-        f"[tope {format_gold(deal.threshold_gold)}]({_ajustar_tope_url(deal)}) · "
-        f"{_time_left_label(deal.time_left)}"
+        f"**[{nombre}]({_wowhead_url(deal)})** · "
+        f"[tope {format_gold(deal.threshold_gold)}]({_ajustar_tope_url(deal)})"
     )
 
 
+# El tiempo restante solo se ensena cuando aprieta: "mas de 12 h" es lo normal
+# y repetirlo en cada linea solo hacia ruido.
+TIEMPOS_QUE_APRIETAN = {"SHORT", "MEDIUM", "LONG"}
+
+
+def _deal_line(deal: Deal, quien: str) -> str:
+    """Una subasta bajo el subtitulo de su objeto: precio y con quien ir.
+
+    Con quien ir va en lugar del reino porque es lo que decide el viaje: el
+    personaje y la cuenta con que entrar.
+    """
+    linea = "• "
+    if deal.quantity > 1:
+        linea += f"×{deal.quantity} — "
+    linea += (
+        f"**{format_gold(deal.price_gold)} g** "
+        f"(−{deal.discount_pct:.0f}%) · {quien}"
+    )
+    if deal.time_left.upper() in TIEMPOS_QUE_APRIETAN:
+        linea += f" · ⏳ {_time_left_label(deal.time_left)}"
+    return linea
+
+
 NOTA_ILVL_SIN_CONFIRMAR = (
-    "> ⚠️ No he podido determinar el ilvl de estas subastas, asi que las he "
-    "comparado con tu precio mas bajo para cada objeto. Comprueba el ilvl en "
-    "el juego antes de comprar."
+    "> ⚠️ ilvl sin confirmar: comparado con tu precio mas bajo para ese "
+    "objeto. Comprueba el ilvl en el juego antes de comprar."
 )
 
 
-def _grupo_ilvl(deal: Deal) -> tuple[int, int]:
-    """Clave para ordenar las tarjetas: ilvl de mayor a menor, y despues los
-    de ilvl dudoso y lo que no escala, que no tienen sitio en esa escala."""
+def _orden_ilvl(deal: Deal) -> tuple[int, int]:
+    """Los objetos de mayor a menor ilvl, y despues los de ilvl dudoso y lo
+    que no escala, que no tienen sitio en esa escala."""
     if deal.sin_ilvl:
         return (2, 0)
     if not deal.ilvl_confirmed or deal.ilvl is None:
         return (1, 0)
     return (0, -deal.ilvl)
-
-
-def _titulo_grupo(clave: tuple[int, int]) -> str:
-    tipo, menos_ilvl = clave
-    if tipo == 0:
-        return f"ilvl {-menos_ilvl}"
-    return "ilvl sin confirmar" if tipo == 1 else "Sin ilvl"
 
 
 def _con_quien(
@@ -190,48 +205,68 @@ def _con_quien(
     return realm_names.get(deal.realm_id, f"Reino {deal.realm_id}")
 
 
-def _grupo_embeds(
-    clave: tuple[int, int],
+def _deal_embeds(
     deals: Sequence[Deal],
     realm_names: Mapping[int, str],
     icon_urls: Mapping[int, str],
     snapshot_at: datetime | None,
     compradores: Mapping[int, str],
 ) -> list[tuple[dict[str, Any], list[Deal]]]:
-    """Las tarjetas de un ilvl: una linea por chollo.
+    """Las tarjetas del aviso: un subtitulo por objeto y una linea por subasta.
 
-    Una tarjeta por subasta obligaba a hacer scroll sin fin. Si las lineas no
-    caben en una, siguen en otra con el titulo "sigue".
+    Una tarjeta por subasta obligaba a hacer scroll sin fin. Todo va en una
+    tarjeta mientras quepa; si no, sigue en otra, y un objeto partido entre
+    dos repite su subtitulo para que ninguna linea quede huerfana.
     """
-    lineas = [_deal_line(d, _con_quien(d, realm_names, compradores)) for d in deals]
-    dudoso = clave[0] == 1
+    # dict normal: dentro del mismo ilvl, los objetos salen en el orden de su
+    # primer chollo. La cabecera ya distingue objeto, ilvl y tope.
+    por_objeto: dict[str, list[Deal]] = {}
+    for deal in sorted(deals, key=_orden_ilvl):
+        por_objeto.setdefault(_cabecera(deal), []).append(deal)
+
+    hay_dudosos = any(not d.ilvl_confirmed and not d.sin_ilvl for d in deals)
     presupuesto = MAX_EMBED_DESCRIPTION
-    if dudoso:
+    if hay_dudosos:
         presupuesto -= len(NOTA_ILVL_SIN_CONFIRMAR) + 2
 
-    base = _titulo_grupo(clave)
-    plural = "chollos" if len(deals) != 1 else "chollo"
+    tarjetas: list[tuple[list[str], list[Deal]]] = []
+    lineas: list[str] = []
+    suyos: list[Deal] = []
+    largo = 0
+    for cabecera, del_objeto in por_objeto.items():
+        for indice, deal in enumerate(sorted(del_objeto, key=lambda d: d.price_copper)):
+            linea = _deal_line(deal, _con_quien(deal, realm_names, compradores))
+            nuevas = [cabecera, linea] if indice == 0 else [linea]
+            tamano = sum(len(l) + 1 for l in nuevas)
+            if suyos and (
+                largo + tamano > presupuesto
+                or len(suyos) >= MAX_UNDERCUT_LINES_PER_MESSAGE
+            ):
+                tarjetas.append((lineas, suyos))
+                lineas, suyos, largo = [], [], 0
+                nuevas = [cabecera, linea]
+                tamano = sum(len(l) + 1 for l in nuevas)
+            lineas.extend(nuevas)
+            suyos.append(deal)
+            largo += tamano
+    tarjetas.append((lineas, suyos))
 
     resultado: list[tuple[dict[str, Any], list[Deal]]] = []
-    inicio = 0
-    for indice, grupo in enumerate(_repartir(lineas, presupuesto)):
-        suyos = list(deals[inicio : inicio + len(grupo)])
-        inicio += len(grupo)
-
-        descripcion = "\n".join(grupo)
-        if dudoso:
+    for lineas, suyos in tarjetas:
+        descripcion = "\n".join(lineas)
+        if any(not d.ilvl_confirmed and not d.sin_ilvl for d in suyos):
             descripcion += "\n\n" + NOTA_ILVL_SIN_CONFIRMAR
 
         embed: dict[str, Any] = {
-            "title": f"{base} — {len(deals)} {plural}" if indice == 0 else f"{base} · sigue",
             # El color del mejor chollo de la tarjeta: es lo que hace mirarla.
             "color": _color_for(max(suyos, key=lambda d: d.discount_pct)),
             "description": descripcion,
         }
         icono = icon_urls.get(suyos[0].item_id)
         if icono and len({d.item_id for d in suyos}) == 1:
-            # Solo cuando toda la tarjeta es el mismo objeto: con varios, un
-            # unico icono diria que es lo que no es.
+            # Discord no admite imagenes dentro del texto, solo una en la
+            # esquina. Va solo cuando la tarjeta es un unico objeto: con
+            # varios, un unico icono diria que es lo que no es.
             embed["thumbnail"] = {"url": icono}
         if snapshot_at:
             # Discord lo pinta junto al pie en la zona horaria de cada lector.
@@ -285,9 +320,9 @@ def _deal_messages(
 ) -> list[tuple[dict[str, Any], list[Deal]]]:
     """Los mensajes listos para el webhook, junto con los chollos de cada uno.
 
-    Una tarjeta por ilvl, de mayor a menor, y tantas tarjetas por mensaje como
-    admite Discord (diez, y 6000 caracteres entre todas). Se recorta a
-    `MAX_DEALS_PER_RUN`, avisando de cuantos quedan pendientes.
+    Tantas tarjetas por mensaje como admite Discord (diez, y 6000 caracteres
+    entre todas). Se recorta a `MAX_DEALS_PER_RUN`, avisando de cuantos quedan
+    pendientes.
     """
     if not deals:
         return []
@@ -300,22 +335,9 @@ def _deal_messages(
     if omitted:
         header += f" (y {omitted} mas que te envio en la proxima pasada)"
 
-    por_ilvl: dict[tuple[int, int], list[Deal]] = {}
-    for deal in shown:
-        por_ilvl.setdefault(_grupo_ilvl(deal), []).append(deal)
-
-    tarjetas: list[tuple[dict[str, Any], list[Deal]]] = []
-    for clave in sorted(por_ilvl):
-        tarjetas.extend(
-            _grupo_embeds(
-                clave,
-                por_ilvl[clave],
-                realm_names,
-                icon_urls or {},
-                snapshot_at,
-                compradores or {},
-            )
-        )
+    tarjetas = _deal_embeds(
+        shown, realm_names, icon_urls or {}, snapshot_at, compradores or {}
+    )
 
     messages: list[tuple[dict[str, Any], list[Deal]]] = []
     embeds: list[dict[str, Any]] = []

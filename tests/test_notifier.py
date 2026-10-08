@@ -22,18 +22,26 @@ REALMS = {1305: "Dun Modr / Sanguino"}
 
 
 def make_deal(
-    auction_id=1, price_gold=45_000, threshold_gold=90_000, confirmed=True, ilvl=311
+    auction_id=1,
+    price_gold=45_000,
+    threshold_gold=90_000,
+    confirmed=True,
+    ilvl=311,
+    item_id=5000,
+    item_name="Greaves of the Noxious Depths",
+    realm_id=1305,
+    time_left="VERY_LONG",
 ):
     return Deal(
         auction_id=auction_id,
-        item_id=5000,
-        item_name="Greaves of the Noxious Depths",
+        item_id=item_id,
+        item_name=item_name,
         ilvl=ilvl if confirmed else None,
         ilvl_confirmed=confirmed,
         price_copper=price_gold * COPPER_PER_GOLD,
         threshold_copper=threshold_gold * COPPER_PER_GOLD,
-        realm_id=1305,
-        time_left="LONG",
+        realm_id=realm_id,
+        time_left=time_left,
     )
 
 
@@ -42,7 +50,12 @@ def tarjetas(deals, realms=REALMS, **kwargs):
 
 
 def lineas(embed):
+    """Las lineas de subasta, sin los subtitulos de objeto."""
     return [l for l in embed["description"].splitlines() if l.startswith("• ")]
+
+
+def subtitulos(embed):
+    return [l for l in embed["description"].splitlines() if l.startswith("**[")]
 
 
 def test_formato_de_oro_a_la_espanola():
@@ -50,74 +63,84 @@ def test_formato_de_oro_a_la_espanola():
     assert format_gold(999) == "999"
 
 
-def test_la_linea_lleva_precio_descuento_reino_tope_y_enlace():
+def test_el_subtitulo_lleva_objeto_ilvl_y_tope_y_la_linea_precio_y_reino():
     embed = tarjetas([make_deal()])[0]
 
-    assert embed["title"] == "ilvl 311 — 1 chollo"
     assert embed["color"] == COLOR_STEAL
-    [linea] = lineas(embed)
-    assert "[Greaves of the Noxious Depths](https://www.wowhead.com/item=5000" in linea
-    assert "**45.000 g** (−50%)" in linea
-    assert "Dun Modr / Sanguino" in linea
-    assert "[tope 90.000](" in linea
-    assert "2 - 12 h" in linea
+    [subtitulo] = subtitulos(embed)
+    assert subtitulo.startswith(
+        "**[Greaves of the Noxious Depths (311)](https://www.wowhead.com/item=5000)** · [tope 90.000]("
+    )
+    assert lineas(embed) == ["• **45.000 g** (−50%) · Dun Modr / Sanguino"]
 
 
 def test_el_aviso_avisa_cuando_el_ilvl_no_esta_confirmado():
     embed = tarjetas([make_deal(confirmed=False)])[0]
 
-    assert embed["title"] == "ilvl sin confirmar — 1 chollo"
+    assert "Greaves of the Noxious Depths (ilvl ⚠️)" in subtitulos(embed)[0]
     assert "antes de comprar" in embed["description"]
     assert embed["color"] == COLOR_UNCONFIRMED
 
 
-def test_una_tarjeta_por_ilvl_de_mayor_a_menor():
+def test_una_sola_tarjeta_con_un_subtitulo_por_objeto_e_ilvl():
     """Agrupar evita una tarjeta por subasta y el scroll sin fin."""
     deals = [
-        make_deal(1, ilvl=311),
-        make_deal(2, ilvl=328),
-        make_deal(3, ilvl=311),
-        make_deal(4, confirmed=False),
+        make_deal(1, ilvl=308),
+        make_deal(2, item_id=6000, item_name="Venom Rite Mantle", ilvl=308),
+        make_deal(3, ilvl=328),
+        make_deal(4, ilvl=308, price_gold=40_000),
+        make_deal(5, confirmed=False),
         make_deal_sin_ilvl(),
     ]
 
     messages = build_messages(deals, REALMS)
 
     assert len(messages) == 1
-    assert [e["title"] for e in messages[0]["embeds"]] == [
-        "ilvl 328 — 1 chollo",
-        "ilvl 311 — 2 chollos",
-        "ilvl sin confirmar — 1 chollo",
-        "Sin ilvl — 1 chollo",
+    [embed] = messages[0]["embeds"]
+    nombres = [s.split("](")[0].lstrip("*[") for s in subtitulos(embed)]
+    # De mayor a menor ilvl; el dudoso y lo que no escala, al final.
+    assert nombres == [
+        "Greaves of the Noxious Depths (328)",
+        "Greaves of the Noxious Depths (308)",
+        "Venom Rite Mantle (308)",
+        "Greaves of the Noxious Depths (ilvl ⚠️)",
+        "Pattern: Arcanoweave Cord",
     ]
-    assert len(lineas(messages[0]["embeds"][1])) == 2
+    assert len(lineas(embed)) == len(deals)
+
+
+def test_dentro_de_un_objeto_las_subastas_van_de_mas_barata_a_mas_cara():
+    embed = tarjetas([make_deal(1, price_gold=50_000), make_deal(2, price_gold=40_000)])[0]
+
+    assert [l.split("**")[1] for l in lineas(embed)] == ["40.000 g", "50.000 g"]
 
 
 def test_cada_linea_dice_con_quien_ir_en_lugar_del_reino():
-    otro = Deal(**{**make_deal(2).__dict__, "realm_id": 1084})
     embed = tarjetas(
-        [make_deal(1), otro],
+        [make_deal(1), make_deal(2, realm_id=1084)],
         realms={**REALMS, 1084: "Dentarg / Tarren Mill"},
         compradores={1305: "Pepe · WoW 1\nJuan · WoW 3", 1084: "Ana · WoW 2"},
     )[0]
 
-    primera, segunda = lineas(embed)
-    assert "(−50%) · Pepe · WoW 1, Juan · WoW 3 · [tope" in primera
-    assert "(−50%) · Ana · WoW 2 · [tope" in segunda
+    assert lineas(embed) == [
+        "• **45.000 g** (−50%) · Pepe · WoW 1, Juan · WoW 3",
+        "• **45.000 g** (−50%) · Ana · WoW 2",
+    ]
     assert "Dun Modr" not in embed["description"]
-    assert "fields" not in embed
 
 
-def test_sin_personajes_conocidos_la_linea_dice_el_reino():
-    [linea] = lineas(tarjetas([make_deal()])[0])
-    assert "(−50%) · Dun Modr / Sanguino · [tope" in linea
+def test_el_tiempo_restante_solo_sale_cuando_aprieta():
+    largo = tarjetas([make_deal(time_left="VERY_LONG")])[0]
+    corto = tarjetas([make_deal(time_left="MEDIUM")])[0]
+
+    assert "⏳" not in largo["description"]
+    assert lineas(corto)[0].endswith("· ⏳ 30 min - 2 h")
 
 
 def test_el_icono_solo_cuando_la_tarjeta_es_un_unico_objeto():
     icono = {5000: "https://icono/5000.jpg"}
     solo = tarjetas([make_deal(1), make_deal(2)], icon_urls=icono)[0]
-    otro = Deal(**{**make_deal(2).__dict__, "item_id": 5002})
-    mezcla = tarjetas([make_deal(1), otro], icon_urls=icono)[0]
+    mezcla = tarjetas([make_deal(1), make_deal(2, item_id=5002)], icon_urls=icono)[0]
 
     assert solo["thumbnail"] == {"url": "https://icono/5000.jpg"}
     assert "thumbnail" not in mezcla
@@ -143,10 +166,14 @@ def test_cabecera_en_singular_con_un_solo_chollo():
 
 
 def test_muchos_chollos_respetan_los_limites_de_discord():
-    deals = [make_deal(i, ilvl=300 + i % 12) for i in range(MAX_DEALS_PER_RUN)]
+    deals = [
+        make_deal(i, item_id=i, item_name=f"Objeto con un nombre largo {i}")
+        for i in range(MAX_DEALS_PER_RUN)
+    ]
 
     messages = build_messages(deals, REALMS, compradores={1305: "Pepe · WoW 1"})
 
+    assert len(messages) > 1
     assert sum(len(lineas(e)) for m in messages for e in m["embeds"]) == len(deals)
     for m in messages:
         assert len(m["embeds"]) <= 10
@@ -157,14 +184,15 @@ def test_muchos_chollos_respetan_los_limites_de_discord():
     assert all("content" not in m for m in messages[1:])
 
 
-def test_un_ilvl_con_muchos_chollos_sigue_en_otra_tarjeta():
+def test_un_objeto_partido_entre_tarjetas_repite_su_subtitulo():
+    """Ninguna linea queda sin saber de que objeto es."""
     deals = [make_deal(i) for i in range(30)]
 
-    titulos = [e["title"] for e in tarjetas(deals)]
+    embeds = tarjetas(deals)
 
-    assert titulos[0] == "ilvl 311 — 30 chollos"
-    assert len(titulos) > 1
-    assert all(t == "ilvl 311 · sigue" for t in titulos[1:])
+    assert len(embeds) > 1
+    assert all(e["description"].startswith("**[Greaves") for e in embeds)
+    assert sum(len(lineas(e)) for e in embeds) == 30
 
 
 def test_se_recorta_y_se_avisa_de_los_omitidos():
@@ -674,7 +702,7 @@ def make_deal_sin_ilvl(price_gold=45_000, threshold_gold=60_000):
 def test_un_objeto_sin_ilvl_no_se_avisa_como_ilvl_sin_confirmar():
     embed = tarjetas([make_deal_sin_ilvl()])[0]
 
-    assert embed["title"] == "Sin ilvl — 1 chollo"
+    assert "ilvl" not in subtitulos(embed)[0].split("](")[0]
     assert "sin confirmar" not in embed["description"]
     # Y no sale en gris: el precio es tan fiable como el de cualquier otro.
     assert embed["color"] != COLOR_UNCONFIRMED
@@ -685,9 +713,9 @@ def test_un_objeto_sin_ilvl_no_se_avisa_como_ilvl_sin_confirmar():
 # ----------------------------------------------------------------------------
 
 def _url_tope(deal):
-    """El enlace del tope, que va en la propia linea del chollo."""
-    [linea] = lineas(tarjetas([deal])[0])
-    return re.search(r"\[tope [^\]]+\]\(([^)]+)\)", linea).group(1)
+    """El enlace del tope, que va en el subtitulo del objeto."""
+    [subtitulo] = subtitulos(tarjetas([deal])[0])
+    return re.search(r"\[tope [^\]]+\]\(([^)]+)\)", subtitulo).group(1)
 
 
 def test_el_aviso_lleva_enlace_para_ajustar_el_tope():
@@ -706,10 +734,7 @@ def test_el_enlace_escapa_lo_que_haga_falta():
     """Los nombres llevan apostrofos y espacios; sin escapar, la URL se rompe."""
     from urllib.parse import parse_qs, urlparse
 
-    deal = make_deal()
-    deal = type(deal)(**{**deal.__dict__, "item_name": "Temple Delver's Mystic Helm"})
-
-    url = _url_tope(deal)
+    url = _url_tope(make_deal(item_name="Temple Delver's Mystic Helm"))
     assert " " not in url
     query = parse_qs(urlparse(url).query)
     assert query["objeto"] == ["Temple Delver's Mystic Helm"]
@@ -827,13 +852,15 @@ def test_un_429_eterno_acaba_rindiendose(requests_mock):
 # -- Lo que llega antes de un fallo cuenta como entregado --------------------
 
 
-def test_si_falla_a_mitad_el_error_dice_que_chollos_si_llegaron(requests_mock):
+def test_si_falla_a_mitad_el_error_dice_que_chollos_si_llegaron(requests_mock, monkeypatch):
     """Si cae el segundo mensaje, los chollos del primero ya estan en
     Discord y hay que poder marcarlos, o la pasada siguiente los repite."""
     requests_mock.post(WEBHOOK, [{"status_code": 204}, {"status_code": 500}])
     notifier = DiscordNotifier(
         WEBHOOK, session=requests.Session(), max_retries=0, sleep=lambda _: None
     )
+    # Con un mensaje pequeno, cada tarjeta va en el suyo.
+    monkeypatch.setattr("wowalerts.notifier.MAX_CHARS_PER_MESSAGE", 1000)
     deals = [make_deal(auction_id=i) for i in range(30)]
     primero = build_messages(deals, REALMS)[0]
     en_el_primero = sum(len(lineas(e)) for e in primero["embeds"])

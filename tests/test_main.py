@@ -1438,10 +1438,12 @@ def test_si_fallan_las_ventas_los_undercuts_enviados_no_se_repiten(
     assert len(avisos_de_undercut()) == 1
 
 
-def test_si_discord_cae_a_mitad_lo_que_ya_llego_no_se_repite(entorno):
-    """Treinta chollos no caben en un mensaje. Si cae el segundo, los del
+def test_si_discord_cae_a_mitad_lo_que_ya_llego_no_se_repite(entorno, monkeypatch):
+    """Si treinta chollos no caben en un mensaje y cae el segundo, los del
     primero ya estan en Discord: la pasada siguiente solo debe mandar los que
     faltan, no los treinta otra vez."""
+    # Con un mensaje pequeno, cada tarjeta va en el suyo.
+    monkeypatch.setattr("wowalerts.notifier.MAX_CHARS_PER_MESSAGE", 1000)
     entorno["mock"].get(
         f"{BASE}/connected-realm/1305/auctions",
         json={"auctions": [subasta(i, 45_000 * 10_000) for i in range(1, 31)]},
