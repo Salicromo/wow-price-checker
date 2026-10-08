@@ -115,6 +115,35 @@ def test_dentro_de_un_objeto_las_subastas_van_de_mas_barata_a_mas_cara():
     assert [l.split("**")[1] for l in lineas(embed)] == ["40.000 g", "50.000 g"]
 
 
+def test_dentro_de_un_objeto_van_por_cuenta_y_luego_por_precio():
+    """Primero todo lo de WoW 1, despues WoW 2 y despues WoW 3: es el orden en
+    que entras, y mezclarlas obligaba a saltar de cuenta en cuenta."""
+    deals = [
+        make_deal(1, price_gold=10_000, realm_id=1),
+        make_deal(2, price_gold=12_000, realm_id=2),
+        make_deal(3, price_gold=12_000, realm_id=3),
+        make_deal(4, price_gold=11_000, realm_id=4),
+        make_deal(5, price_gold=9_000, realm_id=5),
+    ]
+    compradores = {
+        1: "Ийфьордщ · WoW 1",
+        2: "Nemesigoldu · WoW 2",
+        3: "Жнецце · WoW 1",
+        4: "Kbardan · WoW 3\nRavengoldu · WoW 1",
+        5: "Twistgoldus · WoW 3",
+    }
+
+    embed = tarjetas(deals, compradores=compradores)[0]
+
+    assert [l.split(") · ")[1] for l in lineas(embed)] == [
+        "Ийфьордщ · WoW 1",
+        "Kbardan · WoW 3, Ravengoldu · WoW 1",
+        "Жнецце · WoW 1",
+        "Nemesigoldu · WoW 2",
+        "Twistgoldus · WoW 3",
+    ]
+
+
 def test_cada_linea_dice_con_quien_ir_en_lugar_del_reino():
     embed = tarjetas(
         [make_deal(1), make_deal(2, realm_id=1084)],

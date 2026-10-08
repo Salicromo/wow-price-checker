@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import sys
 import time
 from datetime import datetime
 from typing import Any, Iterable, Mapping, Sequence
@@ -205,6 +207,16 @@ def _con_quien(
     return realm_names.get(deal.realm_id, f"Reino {deal.realm_id}")
 
 
+def _cuenta(quien: str) -> int:
+    """La cuenta mas baja con la que se puede ir, para ordenar por cuenta.
+
+    Sale del texto porque es lo unico que llega aqui; el formato lo pone
+    `Personaje.etiqueta` ('Kbardan · WoW 2'). Sin cuenta conocida, al final.
+    """
+    cuentas = [int(n) for n in re.findall(r"WoW (\d+)", quien)]
+    return min(cuentas, default=sys.maxsize)
+
+
 def _deal_embeds(
     deals: Sequence[Deal],
     realm_names: Mapping[int, str],
@@ -234,8 +246,12 @@ def _deal_embeds(
     suyos: list[Deal] = []
     largo = 0
     for cabecera, del_objeto in por_objeto.items():
-        for indice, deal in enumerate(sorted(del_objeto, key=lambda d: d.price_copper)):
-            linea = _deal_line(deal, _con_quien(deal, realm_names, compradores))
+        # Por cuenta (WoW 1, 2, 3...), que es el orden en que entras al juego,
+        # y dentro de cada cuenta de la mas barata a la mas cara.
+        con_quien = [(d, _con_quien(d, realm_names, compradores)) for d in del_objeto]
+        con_quien.sort(key=lambda par: (_cuenta(par[1]), par[0].price_copper))
+        for indice, (deal, quien) in enumerate(con_quien):
+            linea = _deal_line(deal, quien)
             nuevas = [cabecera, linea] if indice == 0 else [linea]
             tamano = sum(len(l) + 1 for l in nuevas)
             if suyos and (
