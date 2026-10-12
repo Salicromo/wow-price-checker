@@ -564,6 +564,9 @@ def run_mis_subastas(
     # La hora de cada volcado mirado. El resumen para el addon lleva el mas
     # viejo: lo que repongas despues puede no estar en este resumen todavia.
     volcados_vistos: list[datetime] = []
+    # Si falta un reino donde tienes subastas, el resumen callaria a sus
+    # personajes y la ventana del addon los daria por buenos.
+    falta_algun_reino = False
     # Cuantas subastas conoce el addon de cada personaje y cuantas siguen vivas.
     # Un personaje con todas muertas es uno cuyos datos son de antes de que las
     # repostearas: contra ids muertos no se detecta nada, y en silencio.
@@ -577,6 +580,8 @@ def run_mis_subastas(
             # seguimiento: si diera por desaparecidas sus subastas, una caida de
             # Blizzard se convertiria en una rafaga de ventas inventadas.
             log.warning("Reino %s: %s", realm_id, exc)
+            if mias:
+                falta_algun_reino = True
             continue
 
         if snapshot.taken_at and (snapshot_at is None or snapshot.taken_at > snapshot_at):
@@ -669,9 +674,10 @@ def run_mis_subastas(
 
     if hacer_undercut:
         # El mismo resumen que el aviso de Discord, para la ventana del addon.
-        # Con algun reino mirado y aunque no haya nada nuevo: tambien hay que
-        # poder decir "nada adelantado". Sin ningun reino, mejor no decir nada.
-        if adelantadas_path and not dry_run and volcados_vistos:
+        # Aunque no haya nada nuevo: tambien hay que poder decir "nada
+        # adelantado". Pero solo con todos tus reinos mirados; si falta alguno
+        # se queda el resumen anterior, que no miente sobre nadie.
+        if adelantadas_path and not dry_run and volcados_vistos and not falta_algun_reino:
             escribir_adelantadas(
                 adelantadas_path,
                 resumen_adelantadas(todos, orden),

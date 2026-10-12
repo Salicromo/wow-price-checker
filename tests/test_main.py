@@ -1615,3 +1615,48 @@ def test_si_no_se_pudo_mirar_ningun_reino_no_se_publica(entorno, tmp_path, monke
     salida, argumentos = _preparar_adelantadas(entorno, tmp_path, monkeypatch, [], estado=503)
     ejecutar(entorno, *argumentos)
     assert not salida.exists()
+
+
+def _dos_reinos(entorno, tmp_path, monkeypatch, estado_segundo=200, modificado_segundo=LAST_MODIFIED):
+    """Una subasta tuya en Dun Modr (1305) y otra en Sanguino (1306)."""
+    salida, argumentos = _preparar_adelantadas(
+        entorno, tmp_path, monkeypatch, [_ajena(910, 5000, 70_000, (12843,))]
+    )
+    fichero = tmp_path / "subastas" / "pc.json"
+    otra = _mia(950, 5000, "Grebas de las profundidades", 80_000, (12843,), 311)
+    otra.update(account=3, character="Bea", realm="Sanguino")
+    datos = json.loads(fichero.read_text(encoding="utf-8"))
+    datos["auctions"].append(otra)
+    fichero.write_text(json.dumps(datos), encoding="utf-8")
+
+    entorno["mock"].get(
+        f"{BASE}/realm/sanguino",
+        json={"connected_realm": {"href": f"{BASE}/connected-realm/1306"}},
+    )
+    entorno["mock"].get(
+        f"{BASE}/connected-realm/1306/auctions",
+        status_code=estado_segundo,
+        json={"auctions": [_ajena(950, 5000, 80_000, (12843,)), _ajena(960, 5000, 60_000, (12843,))]},
+        headers={"Last-Modified": modificado_segundo},
+    )
+    return salida, argumentos
+
+
+def test_el_volcado_es_el_mas_viejo_de_los_reinos_mirados(entorno, tmp_path, monkeypatch):
+    salida, argumentos = _dos_reinos(
+        entorno, tmp_path, monkeypatch, modificado_segundo="Sun, 30 Aug 2026 11:21:16 GMT"
+    )
+    assert ejecutar(entorno, *argumentos) == cli.EXIT_OK
+
+    datos = json.loads(salida.read_text(encoding="utf-8"))
+    assert datos["volcado"] == VOLCADO_EPOCH - 600
+    assert datos["total"] == 2
+
+
+def test_si_falla_un_reino_con_subastas_tuyas_no_se_publica(entorno, tmp_path, monkeypatch):
+    """Sin ese reino el resumen callaria a sus personajes, y la ventana los
+    daria por buenos. Mejor dejar el resumen anterior."""
+    salida, argumentos = _dos_reinos(entorno, tmp_path, monkeypatch, estado_segundo=503)
+    ejecutar(entorno, *argumentos)
+
+    assert not salida.exists()
