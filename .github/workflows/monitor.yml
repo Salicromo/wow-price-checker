@@ -207,7 +207,10 @@ jobs:
         run: python datos_app.py --salida publicar
 
       - name: Subir los datos de la app
-        if: "!cancelled() && !inputs.dry_run && hashFiles('publicar/**') != ''"
+        # Con el catalogo y no con cualquier fichero: la subida rehace la rama
+        # con lo que haya en publicar/, y si datos_app.py ha fallado ahi solo
+        # queda adelantadas.json. Subirlo borraria lo que lee la app.
+        if: "!cancelled() && !inputs.dry_run && hashFiles('publicar/catalogo.json') != ''"
         env:
           PRIVADO_TOKEN: ${{ secrets.PRIVADO_TOKEN }}
         run: |
