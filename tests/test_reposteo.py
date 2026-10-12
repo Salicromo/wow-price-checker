@@ -444,8 +444,8 @@ def test_el_toc_carga_los_ficheros_en_orden():
     # WowAlertsExportDB. BancoHermandad.lua usa WowAlertsExportDB y el
     # codificador JSON de WowAlertsExport.lua (WowAlertsJSON).
     # Ventana.lua lee WowAlertsReposteo y WowAlertsBanco, asi que tiene que
-    # ir detras de ellos. Adelantadas.lua solo define WowAlertsAdelantadas y no
-    # se sube a git (lo escribe sync_subastas.py en la carpeta del juego).
+    # ir detras de ellos. Adelantadas.lua solo define WowAlertsAdelantadas; en
+    # git va vacio y sync_subastas.py lo reemplaza en la carpeta del juego.
     # VentanaAdelantadas.lua lee WowAlertsAdelantadas y WowAlertsExportDB, y
     # Reposteo.lua la avisa por el global, asi que va al final. Si añades un
     # fichero nuevo, piensa que
@@ -4186,3 +4186,14 @@ def test_con_una_sola_columna_cabe_el_titulo():
     lua.globals().WowAlertsVentanaAdelantadas.Mostrar()
 
     assert lua.globals().ANCHO >= 300
+
+
+def test_el_addon_trae_un_adelantadas_vacio():
+    """WoW da un "Error loading" por cada fichero del .toc que no existe. Sin
+    este, saldria en cada carga hasta que sync_subastas.py traiga el primer
+    resumen (en la Deck, hasta sincronizar). Vacio: la ventana no ensena nada
+    hasta que llegue el de verdad."""
+    codigo = (CARPETA / "Adelantadas.lua").read_bytes().decode("ascii")
+    lua = runtime()
+    lua.execute(codigo)
+    assert lua.globals().WowAlertsAdelantadas is None

@@ -1,0 +1,3 @@
+-- Vacio a proposito: sync_subastas.py lo reemplaza en la carpeta del juego
+-- por el resumen de lo adelantado (WowAlertsAdelantadas). Existe para que WoW
+-- no de un "Error loading" por un fichero del .toc que falta.
