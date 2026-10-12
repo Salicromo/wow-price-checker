@@ -134,6 +134,34 @@ local function sacarCogido(itemID)
     end
 end
 
+-- Con las dos cuentas conectadas a la vez, lo que apunta una se manda por la
+-- hermandad en un mensaje de addon y la otra lo pinta en el momento, sin
+-- esperar a la sincronizacion por disco. Cada hueco va como
+-- "pestana:hueco=itemID:ilvl:en" (sin itemID ni ilvl si se olvida), separados
+-- por ";" y en mensajes de 255 como mucho.
+local PREFIJO = "WowAlertsBanco"
+if C_ChatInfo then
+    C_ChatInfo.RegisterAddonMessagePrefix(PREFIJO)
+end
+
+local function avisar(cambios)
+    if not C_ChatInfo then
+        return
+    end
+    local mensaje = ""
+    for k, a in pairs(cambios) do
+        local parte = k .. "=" .. (a.itemID or "") .. ":" .. (a.ilvl or "") .. ":" .. a.en
+        if #mensaje + #parte + 1 > 255 then
+            C_ChatInfo.SendAddonMessage(PREFIJO, mensaje, "GUILD")
+            mensaje = ""
+        end
+        mensaje = (mensaje == "" and parte) or (mensaje .. ";" .. parte)
+    end
+    if mensaje ~= "" then
+        C_ChatInfo.SendAddonMessage(PREFIJO, mensaje, "GUILD")
+    end
+end
+
 -- Pone al dia lo apuntado comparando el banco de ahora con la ultima lectura.
 -- Lo que deja un hueco suelta su ilvl; lo que llega a otro lo toma de ahi (lo
 -- has movido) o de lo cogido de la bolsa (lo has metido).
@@ -145,12 +173,14 @@ local function seguir(clave, ahora)
     local apuntados = ilvlsApuntados(clave)
     local en = time()
     local sueltos = {}
+    local cambios = {}
     for k, itemID in pairs(vistos) do
         local a = apuntados[k]
         if ahora[k] ~= itemID and a and a.itemID == itemID then
             sueltos[itemID] = sueltos[itemID] or {}
             table.insert(sueltos[itemID], a.ilvl)
             apuntados[k] = { en = en }
+            cambios[k] = apuntados[k]
         end
     end
     for k, itemID in pairs(ahora) do
@@ -158,12 +188,31 @@ local function seguir(clave, ahora)
             local ilvl = (sueltos[itemID] and table.remove(sueltos[itemID])) or sacarCogido(itemID)
             if ilvl then
                 apuntados[k] = { itemID = itemID, ilvl = ilvl, en = en }
+                cambios[k] = apuntados[k]
             elseif apuntados[k] and apuntados[k].itemID and apuntados[k].itemID ~= itemID then
                 apuntados[k] = { en = en }
+                cambios[k] = apuntados[k]
             end
         end
     end
     vistos = ahora
+    avisar(cambios)
+end
+
+-- Lo que manda la otra cuenta. Gana lo apuntado mas tarde, como entre ficheros;
+-- a la misma hora gana lo recibido, que es de quien tiene el objeto delante.
+local function recibir(clave, texto)
+    local apuntados = ilvlsApuntados(clave)
+    for k, itemID, ilvl, en in texto:gmatch("(%d+:%d+)=(%d*):(%d*):(%d+)") do
+        en = tonumber(en)
+        if not apuntados[k] or en >= (apuntados[k].en or 0) then
+            if itemID ~= "" and ilvl ~= "" then
+                apuntados[k] = { itemID = tonumber(itemID), ilvl = tonumber(ilvl), en = en }
+            else
+                apuntados[k] = { en = en }
+            end
+        end
+    end
 end
 
 -- El ilvl apuntado de ese hueco, si lo que hay es lo que se apunto.
@@ -287,7 +336,8 @@ eventos:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
 eventos:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
 eventos:RegisterEvent("GUILDBANKBAGSLOTS_CHANGED")
 eventos:RegisterEvent("ADDON_LOADED")
-eventos:SetScript("OnEvent", function(_, evento, tipo)
+eventos:RegisterEvent("CHAT_MSG_ADDON")
+eventos:SetScript("OnEvent", function(_, evento, tipo, ...)
     if evento == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
         if esBanquero(tipo) then
             abierto = true
@@ -311,5 +361,18 @@ eventos:SetScript("OnEvent", function(_, evento, tipo)
         pintar()
     elseif evento == "ADDON_LOADED" then
         engancharVentana()
+    elseif evento == "CHAT_MSG_ADDON" then
+        local prefijo, texto, canal, de = tipo, ...
+        local clave = claveHermandad()
+        local yo = UnitName("player")
+        if prefijo == PREFIJO and canal == "GUILD" and clave
+            and de ~= yo and de ~= yo .. "-" .. GetNormalizedRealmName() then
+            recibir(clave, texto)
+            exportar()
+            -- Con el banco abierto se recuenta, para que las copias cuenten
+            -- con el ilvl recibido.
+            leer()
+            pintar()
+        end
     end
 end)

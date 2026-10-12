@@ -2049,7 +2049,7 @@ def test_la_version_del_toc_es_la_del_addon():
 
     en_toc = re.search(r"^## Version: (.+)$", toc, re.MULTILINE).group(1).strip()
     en_lua = re.search(r'^local ADDON_VERSION = "(.+)"$', lua, re.MULTILINE).group(1)
-    assert en_toc == en_lua == "1.35"
+    assert en_toc == en_lua == "1.37"
 
 
 # -- Lo que el juego confirma y lo que se repone por fuera --------------------
@@ -3578,16 +3578,47 @@ def test_la_carta_de_caducada_junto_a_una_cancelada_suma_una_entrada_mas():
     assert sorted(bool(e.get("caducada")) for e in cola(lua)) == [False, True]
 
 
-def test_la_carta_de_caducada_de_algo_sin_precio_conocido_no_se_toca():
-    """Sin el precio que tenia no se puede cumplir la regla cuando nadie mas lo
-    vende: esa carta se deja para recogerla a mano."""
-    lua = runtime()
+def caducar_sin_precio(lua):
+    """La carta de una caducada de la que no se apunto el precio, recogida y
+    con la copia ya en la bolsa."""
     poner(lua, "CORREO", [carta(asunto=CADUCADA)])
     abrir_buzon(lua)
     lua.globals().VENCER_TEMPORIZADORES()
+    poner(lua, "CORREO", [])
+    en_la_bolsa(lua, 3)
+    lua.globals().DISPARAR("MAIL_INBOX_UPDATE")
+    lua.globals().BUZON_ABIERTO = False
+    lua.globals().DISPARAR("MAIL_CLOSED")
 
+
+def test_lo_caducado_sin_precio_conocido_se_repone_al_del_mas_barato():
+    """Sin el precio que tenia, basta con buscar: se pone al del mas barato."""
+    lua = runtime()
+    caducar_sin_precio(lua)
+    (e,) = cola(lua)
+    assert (e["estado"], e["caducada"]) == ("devuelta", True)
+    assert ("TakeInboxItem", 1, 1) in llamadas(lua)
+
+    en_la_casa(lua, [en_venta(999, 90_000)])
+    abrir_casa(lua)
+    assert pulsar(lua) == "buscar"
+    responder_todo(lua)
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, 90_000)
+
+
+def test_lo_caducado_sin_precio_conocido_y_sin_nadie_mas_se_deja_a_mano():
+    """Sin rival ni precio anterior no hay a cuanto ponerlo: sale de la cola."""
+    lua = runtime()
+    caducar_sin_precio(lua)
+
+    en_la_casa(lua, [])
+    abrir_casa(lua)
+    assert pulsar(lua) == "buscar"
+    responder_todo(lua)
+    assert pulsar(lua) is None
     assert cola(lua) == []
-    assert llamadas(lua) == []
+    assert not any(ll[0] == "PostItem" for ll in llamadas(lua))
 
 
 def test_la_carta_de_caducada_de_algo_no_vigilado_no_se_toca():
@@ -3860,3 +3891,27 @@ def test_lo_cancelado_para_repostear_no_sale_como_que_falta():
     poner(lua, "SUBASTAS", [coif])
 
     assert faltan(lua) == []
+
+
+def test_lo_que_falta_a_308_y_esta_en_la_bolsa_se_postea_con_la_tecla():
+    """Escaneado su precio, la tecla lo pone al del mas barato, sin hacerlo a mano."""
+    lua = con_faltan(subastas=[mia(10, 100_000, item_id=COIF, ilvl=308)])
+    en_la_casa(lua, [en_venta(1, 30_000), en_venta(2, 25_000)], ilvl=308)
+    abrir_casa(lua)
+    pulsar(lua)
+    responder_faltan(lua)
+    en_la_bolsa(lua, 3, ilvl=308)
+
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, 25_000)
+    assert faltan(lua) == []
+    assert cola(lua) == []
+
+
+def test_lo_que_falta_sin_precio_escaneado_no_se_postea():
+    lua = con_faltan(subastas=[mia(10, 100_000, item_id=COIF, ilvl=308)])
+    en_la_bolsa(lua, 3, ilvl=308)
+    abrir_casa(lua)
+    assert pulsar(lua) == "buscar"
+
+    assert "PostItem" not in [c[0] for c in llamadas(lua)]

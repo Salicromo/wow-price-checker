@@ -56,6 +56,19 @@ function GetGuildBankItemLink(p, h) local x = hueco(p, h); return x and x.enlace
 function GetGuildBankItemInfo(p, h) local x = hueco(p, h); return x and 1, x and x.cantidad end
 function GetDetailedItemLevelInfo(enlace) return tonumber(enlace:match("ilvl(%d+)")) end
 
+-- Los mensajes de addon: lo enviado se apunta en ENVIADOS como { prefijo,
+-- texto, canal }.
+PERSONAJE = "Pepe"
+function UnitName() return PERSONAJE end
+PREFIJOS = {}
+ENVIADOS = {}
+C_ChatInfo = {
+    RegisterAddonMessagePrefix = function(p) PREFIJOS[p] = true end,
+    SendAddonMessage = function(p, texto, canal)
+        ENVIADOS[#ENVIADOS + 1] = { prefijo = p, texto = texto, canal = canal }
+    end,
+}
+
 -- hooksecurefunc de verdad: llama a la original y luego al gancho.
 function hooksecurefunc(tabla, nombre, gancho)
     local original = tabla[nombre]
@@ -491,3 +504,130 @@ def test_lo_que_sale_del_banco_se_apunta_con_la_hora_para_las_otras_cuentas():
 
     banco = json.loads(lua.globals().WowAlertsExportDB.bancoJSON)
     assert banco[CLAVE]["ilvls"] == {"1:3": {"en": 1756500099}}
+
+
+# ---------------------------------------------------------------------------
+#  Al momento, con las dos cuentas conectadas
+#
+#  La sincronizacion por disco solo llega al salir del juego o con /reload.
+#  Con las dos cuentas a la vez, lo que apunta una se manda por la hermandad
+#  con un mensaje de addon y la otra lo pinta en el momento.
+# ---------------------------------------------------------------------------
+
+def enviados(lua):
+    return [dict(m.items()) for m in lua.globals().ENVIADOS.values()]
+
+
+def recibir(lua, mensajes, canal="GUILD", de="Otro-Sanguino"):
+    for m in mensajes:
+        lua.globals().DISPARAR("CHAT_MSG_ADDON", m["prefijo"], m["texto"], canal, de)
+
+
+def meter_en_otra_cuenta(hueco=3, ilvl=308):
+    """Lo que manda la otra cuenta al meter un manto en el hueco 1:<hueco>."""
+    otra = runtime()
+    con_bolsa(otra, {1: en_bolsa(ilvl=ilvl)})
+    abrir_banco(otra)
+    meter_con_clic_derecho(otra, {1: {hueco: del_banco()}})
+    return enviados(otra)
+
+
+def test_registra_su_prefijo_de_mensajes():
+    lua = runtime()
+    assert len(list(lua.globals().PREFIJOS.keys())) == 1
+
+
+def test_al_meter_algo_lo_manda_por_la_hermandad():
+    mensajes = meter_en_otra_cuenta()
+
+    assert len(mensajes) == 1
+    assert mensajes[0]["canal"] == "GUILD"
+
+
+def test_abrir_el_banco_sin_cambiar_nada_no_manda_nada():
+    lua = runtime()
+    con_banco(lua, {1: {1: del_banco()}})
+    abrir_banco(lua)
+    lua.globals().DISPARAR("GUILDBANKBAGSLOTS_CHANGED")
+
+    assert enviados(lua) == []
+
+
+def test_lo_que_mete_la_otra_cuenta_se_ve_al_momento():
+    lua = runtime()
+    abrir_banco(lua)
+    cambia(lua, {1: {3: del_banco()}})
+    recibir(lua, meter_en_otra_cuenta())
+
+    assert ilvl(lua, 1, 3) == 308
+    assert lua.globals().TEXTO_HUECO(3) == "308"
+    assert copias(lua, MANTO, 308) == 1
+
+
+def test_lo_recibido_con_el_banco_cerrado_vale_al_abrirlo():
+    lua = runtime()
+    recibir(lua, meter_en_otra_cuenta())
+    con_banco(lua, {1: {3: del_banco()}})
+    abrir_banco(lua)
+
+    assert ilvl(lua, 1, 3) == 308
+    banco = json.loads(lua.globals().WowAlertsExportDB.bancoJSON)
+    assert banco[CLAVE]["ilvls"]["1:3"]["ilvl"] == 308
+
+
+def test_que_la_otra_cuenta_lo_saque_tambien_se_recibe():
+    otra = runtime()
+    con_bolsa(otra, {1: en_bolsa()})
+    abrir_banco(otra)
+    meter_con_clic_derecho(otra, {1: {3: del_banco()}})
+    otra.globals().time = otra.eval("function() return 1756500099 end")
+    cambia(otra, {})
+
+    lua = runtime()
+    recibir(lua, enviados(otra))
+    con_banco(lua, {1: {3: del_banco()}})
+
+    assert ilvl(lua, 1, 3) is None
+
+
+def test_lo_que_no_llega_por_la_hermandad_no_se_usa():
+    lua = runtime()
+    recibir(lua, meter_en_otra_cuenta(), canal="WHISPER")
+    con_banco(lua, {1: {3: del_banco()}})
+
+    assert ilvl(lua, 1, 3) is None
+
+
+def test_lo_que_manda_este_mismo_personaje_no_se_vuelve_a_apuntar():
+    lua = runtime()
+    recibir(lua, meter_en_otra_cuenta(), de="Pepe-Sanguino")
+    con_banco(lua, {1: {3: del_banco()}})
+
+    assert ilvl(lua, 1, 3) is None
+
+
+def test_lo_recibido_no_pisa_algo_apuntado_mas_tarde():
+    mensajes = meter_en_otra_cuenta(ilvl=308)
+    lua = runtime(mi_cuenta_y_otra(
+        '{ ["1:3"] = { itemID = 271434, ilvl = 311, en = 1756500099 } }', "{}"
+    ))
+    recibir(lua, mensajes)
+    con_banco(lua, {1: {3: del_banco()}})
+
+    assert ilvl(lua, 1, 3) == 311
+
+
+def test_muchos_huecos_caben_en_mensajes_cortos():
+    otra = runtime()
+    con_bolsa(otra, {h: en_bolsa(ilvl=300 + h) for h in range(1, 41)})
+    abrir_banco(otra)
+    for h in range(1, 41):
+        otra.globals().C_Container.UseContainerItem(0, h)
+    cambia(otra, {1: {h: del_banco() for h in range(1, 41)}})
+    mensajes = enviados(otra)
+
+    assert all(len(m["texto"]) <= 255 for m in mensajes)
+    lua = runtime()
+    recibir(lua, mensajes)
+    con_banco(lua, {1: {h: del_banco() for h in range(1, 41)}})
+    assert sorted(ilvl(lua, 1, h) for h in range(1, 41)) == list(range(301, 341))

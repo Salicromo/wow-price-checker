@@ -727,14 +727,20 @@ local function procesarGrupo(grupo)
     -- queda nadie ahi, se repostea a ese precio: igualar, nunca subir.
     -- Lo caducado es distinto: nadie te adelanto, simplemente no se vendio, y
     -- se pone al precio del mas barato de ahora aunque sea mas alto. Solo sin
-    -- nadie mas vendiendolo se queda con el que tenia.
+    -- nadie mas vendiendolo se queda con el que tenia, y si no se sabe cual
+    -- era, se deja para ponerlo a mano.
     for _, e in ipairs(grupo.devueltas) do
         local tope = e.caducada and math.huge or e.precioAnterior
         local rival = mejorRival(grupo.itemKey, { auctionID = math.huge, buyout = tope })
         e.precio = rival or e.precioAnterior
-        e.precioEn = time()
-        repasadas[e.auctionID] = true
-        traza("  devuelta %s: se repostea a %s (antes %s)", e.auctionID, oro(e.precio), oro(e.precioAnterior))
+        if e.precio then
+            e.precioEn = time()
+            repasadas[e.auctionID] = true
+            traza("  devuelta %s: se repostea a %s (antes %s)", e.auctionID, oro(e.precio), oro(e.precioAnterior))
+        else
+            traza("olvido %s: nadie mas lo vende y no se a cuanto lo tenias", e.auctionID)
+            quitarEntrada(e.auctionID)
+        end
     end
     if grupo.precioDe then
         -- Un rival cualquiera va por delante de una subasta infinita: sale el
@@ -1087,20 +1093,20 @@ local function apuntarCaducadas()
         end
         local sobran = cartas[clave] + copiasEnBolsa(objeto.itemID, objeto.ilvl) - devueltas
         local nuevas = math.min(sobran, cuantas)
-        if nuevas > 0 and not conocido then
-            -- Sin el precio que tenia no se puede cumplir la regla cuando nadie
-            -- mas lo vende. Pasa con lo puesto antes de que el addon lo
-            -- apuntara: esa carta se deja para recogerla a mano.
-            traza("carta de caducada de %s sin precio conocido: no la toco", clave)
-        elseif nuevas > 0 then
+        if nuevas > 0 then
+            -- Sin el precio que tenia se repone igual, al del mas barato que
+            -- encuentre la busqueda (ver procesarGrupo).
+            local itemKey = conocido and conocido.itemKey
+                or { itemID = objeto.itemID, itemLevel = objeto.ilvl, itemSuffix = 0 }
+            local precio = conocido and conocido.precio
             for _ = 1, nuevas do
-                traza("caducada %s: vuelve a la cola, antes a %s", clave, oro(conocido.precio))
+                traza("caducada %s: vuelve a la cola, antes a %s", clave, oro(precio))
                 entradas[#entradas + 1] = {
                     auctionID = idLibre,
-                    itemKey = conocido.itemKey,
+                    itemKey = itemKey,
                     itemID = objeto.itemID,
                     ilvl = objeto.ilvl,
-                    precioAnterior = conocido.precio,
+                    precioAnterior = precio,
                     estado = "devuelta",
                     caducada = true,
                     desde = time(),
@@ -1160,25 +1166,52 @@ local function precioReciente(e)
     return e.precio ~= nil and e.precioEn ~= nil and time() - e.precioEn < SEGUNDOS_PRECIO_RECIENTE
 end
 
+-- Una copia libre y vendible de ese objeto e ilvl en la bolsa, o nil.
+local function sitioEnBolsa(itemID, ilvl)
+    local sitio = nil
+    enLaBolsa(itemID, ilvl, function(bolsa, hueco, info)
+        if not info.isLocked and sePuedeVender(bolsa, hueco) then
+            local candidato = ItemLocation:CreateFromBagAndSlot(bolsa, hueco)
+            if not C_AuctionHouse.IsSellItemValid
+                or C_AuctionHouse.IsSellItemValid(candidato, false) then
+                sitio = candidato
+                return true
+            end
+        end
+    end)
+    return sitio
+end
+
 -- La primera devuelta con el precio al dia (repasado en esta visita, o de hace
 -- un momento) y una copia libre y vendible en la bolsa, y donde esta esa copia.
+-- Si no hay, lo que falta a R.ILVL_FALTAN con su precio ya buscado y una copia
+-- en la bolsa: una entrada nueva, aun fuera de la cola (`nueva`), que postear
+-- mete en ella. Va al precio del mas barato, como lo caducado.
 local function paraPostear()
     for _, e in ipairs(cola()) do
         if e.estado == "devuelta" and (repasadas[e.auctionID] or precioReciente(e)) and e.precio
             and not hayPosteandoDe(claveObjeto(e.itemID, e.ilvl)) then
-            local sitio = nil
-            enLaBolsa(e.itemID, e.ilvl, function(bolsa, hueco, info)
-                if not info.isLocked and sePuedeVender(bolsa, hueco) then
-                    local candidato = ItemLocation:CreateFromBagAndSlot(bolsa, hueco)
-                    if not C_AuctionHouse.IsSellItemValid
-                        or C_AuctionHouse.IsSellItemValid(candidato, false) then
-                        sitio = candidato
-                        return true
-                    end
-                end
-            end)
+            local sitio = sitioEnBolsa(e.itemID, e.ilvl)
             if sitio then
                 return e, sitio
+            end
+        end
+    end
+    for _, falta in ipairs(R.Faltan()) do
+        if type(falta.precio) == "number" and falta.precio > 0
+            and not hayPosteandoDe(claveObjeto(falta.itemID, R.ILVL_FALTAN)) then
+            local sitio = sitioEnBolsa(falta.itemID, R.ILVL_FALTAN)
+            if sitio then
+                return {
+                    nueva = true,
+                    itemKey = { itemID = falta.itemID, itemLevel = R.ILVL_FALTAN, itemSuffix = 0 },
+                    itemID = falta.itemID,
+                    ilvl = R.ILVL_FALTAN,
+                    precio = falta.precio,
+                    precioAnterior = falta.precio,
+                    caducada = true,
+                    desde = time(),
+                }, sitio
             end
         end
     end
@@ -1264,6 +1297,19 @@ end
 -- Pone `d` a la venta desde `sitio` y devuelve el detalle para la traza.
 local function postear(d, sitio)
     local duracion = vigilados().duracion
+    if d.nueva then
+        -- Lo que faltaba entra en la cola con un id inventado, como lo caducado.
+        local entradas = cola()
+        local idLibre = -1
+        for _, e in ipairs(entradas) do
+            if e.auctionID <= idLibre then
+                idLibre = e.auctionID - 1
+            end
+        end
+        d.nueva = nil
+        d.auctionID = idLibre
+        entradas[#entradas + 1] = d
+    end
     -- La entrada sale de la cola cuando el juego crea la subasta
     -- (AUCTION_HOUSE_AUCTION_CREATED), no al pedirlo: un posteo rechazado, o
     -- aceptado desde el aviso de Blizzard, dejaria la cola descuadrada. Se
