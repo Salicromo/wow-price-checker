@@ -100,7 +100,11 @@ local function crearMarco()
     -- El nombre no puede ser el de la tabla del modulo: CreateFrame con nombre
     -- crea un global y pisaria WowAlertsVentanaAdelantadas (ver Ventana.lua).
     marco = CreateFrame("Frame", "WowAlertsAdelantadasMarco", UIParent, "BasicFrameTemplateWithInset")
-    marco:SetFrameStrata("MEDIUM")
+    -- Por encima de la casa de subastas, que va en HIGH y la tapaba. No en
+    -- DIALOG: ahi van los avisos de confirmacion del juego (el del precio al
+    -- postear, por ejemplo) y esta ventana no debe taparlos.
+    marco:SetFrameStrata("HIGH")
+    marco:SetFrameLevel(100)
     marco:EnableMouse(true)
     marco:SetMovable(true)
     marco:SetClampedToScreen(true)

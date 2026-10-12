@@ -2055,7 +2055,7 @@ def test_la_version_del_toc_es_la_del_addon():
 
     en_toc = re.search(r"^## Version: (.+)$", toc, re.MULTILINE).group(1).strip()
     en_lua = re.search(r'^local ADDON_VERSION = "(.+)"$', lua, re.MULTILINE).group(1)
-    assert en_toc == en_lua == "1.38"
+    assert en_toc == en_lua == "1.39"
 
 
 # -- Lo que el juego confirma y lo que se repone por fuera --------------------
@@ -4197,3 +4197,24 @@ def test_el_addon_trae_un_adelantadas_vacio():
     lua = runtime()
     lua.execute(codigo)
     assert lua.globals().WowAlertsAdelantadas is None
+
+
+def test_la_ventana_de_adelantadas_va_por_encima_de_la_casa():
+    """La casa de subastas la tapaba. Por encima de ella, pero no en DIALOG:
+    ahi van los avisos de confirmacion del juego y no hay que taparlos."""
+    lua = con_ventana_adelantadas()
+    lua.execute(
+        """
+        local crear = CreateFrame
+        CreateFrame = function(...)
+            local f = crear(...)
+            rawset(f, "SetFrameStrata", function(self, capa) CAPA = capa end)
+            rawset(f, "SetFrameLevel", function(self, nivel) NIVEL = nivel end)
+            return f
+        end
+        """
+    )
+    lua.globals().WowAlertsVentanaAdelantadas.Mostrar()
+
+    assert lua.globals().CAPA == "HIGH"
+    assert lua.globals().NIVEL >= 100
