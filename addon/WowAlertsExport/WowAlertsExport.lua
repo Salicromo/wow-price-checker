@@ -7,7 +7,7 @@
 
 local FORMAT_VERSION = 1
 -- Version del addon, para saber que codigo se esta ejecutando de verdad.
-local ADDON_VERSION = "1.37"
+local ADDON_VERSION = "1.38"
 
 WowAlertsExportDB = WowAlertsExportDB or {}
 
@@ -546,7 +546,15 @@ end)
 -- de OWNED_AUCTIONS_UPDATED, cuando llega la respuesta.
 SLASH_WOWALERTS1 = "/wowalerts"
 SLASH_WOWALERTS2 = "/wa"
-SlashCmdList["WOWALERTS"] = function()
+SlashCmdList["WOWALERTS"] = function(msg)
+    -- "/wa adelantadas" abre y cierra la ventana de lo adelantado.
+    if msg and msg:match("^%s*adelantadas%s*$") then
+        if WowAlertsVentanaAdelantadas and WowAlertsVentanaAdelantadas.Alternar then
+            WowAlertsVentanaAdelantadas.Alternar()
+        end
+        return
+    end
+
     local _, nombre, reino = claveDePersonaje()
 
     print(("|cffffd200WoW Alerts v%s|r · %s de %s"):format(ADDON_VERSION, nombre, reino))

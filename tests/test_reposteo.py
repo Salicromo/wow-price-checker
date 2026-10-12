@@ -444,7 +444,11 @@ def test_el_toc_carga_los_ficheros_en_orden():
     # WowAlertsExportDB. BancoHermandad.lua usa WowAlertsExportDB y el
     # codificador JSON de WowAlertsExport.lua (WowAlertsJSON).
     # Ventana.lua lee WowAlertsReposteo y WowAlertsBanco, asi que tiene que
-    # ir el ultimo. Si añades un fichero nuevo, piensa que
+    # ir detras de ellos. Adelantadas.lua solo define WowAlertsAdelantadas y no
+    # se sube a git (lo escribe sync_subastas.py en la carpeta del juego).
+    # VentanaAdelantadas.lua lee WowAlertsAdelantadas y WowAlertsExportDB, y
+    # Reposteo.lua la avisa por el global, asi que va al final. Si añades un
+    # fichero nuevo, piensa que
     # necesita antes de cargar y ponlo en el sitio que le toque, no al final
     # sin mas.
     toc = (CARPETA / "WowAlertsExport.toc").read_text(encoding="utf-8")
@@ -452,10 +456,12 @@ def test_el_toc_carga_los_ficheros_en_orden():
     assert ficheros == [
         "Vigilados.lua",
         "Personajes.lua",
+        "Adelantadas.lua",
         "WowAlertsExport.lua",
         "Reposteo.lua",
         "BancoHermandad.lua",
         "Ventana.lua",
+        "VentanaAdelantadas.lua",
     ]
 
 
@@ -2049,7 +2055,7 @@ def test_la_version_del_toc_es_la_del_addon():
 
     en_toc = re.search(r"^## Version: (.+)$", toc, re.MULTILINE).group(1).strip()
     en_lua = re.search(r'^local ADDON_VERSION = "(.+)"$', lua, re.MULTILINE).group(1)
-    assert en_toc == en_lua == "1.37"
+    assert en_toc == en_lua == "1.38"
 
 
 # -- Lo que el juego confirma y lo que se repone por fuera --------------------
@@ -4002,3 +4008,159 @@ def test_lo_que_falta_sin_precio_escaneado_no_se_postea():
     assert pulsar(lua) == "buscar"
 
     assert "PostItem" not in [c[0] for c in llamadas(lua)]
+
+
+# -- La ventana de adelantadas ---------------------------------------------------
+
+RESUMEN_ADELANTADAS = """
+WowAlertsAdelantadas = {
+    pasada = AHORA - 25 * 60,
+    volcado = AHORA - 40 * 60,
+    total = 7,
+    cuentas = {
+        { cuenta = 2, personajes = {
+            { nombre = "Pepe", reino = "Sanguino", n = 2, caras = 1 },
+            { nombre = "Mbarval", reino = "Sanguino", n = 1, caras = 0 },
+        } },
+        { cuenta = 3, personajes = {
+            { nombre = "Ana", reino = "Kazzak", n = 4, caras = 4 },
+        } },
+    },
+}
+"""
+
+
+def con_ventana_adelantadas(resumen=RESUMEN_ADELANTADAS):
+    lua = runtime()
+    if resumen:
+        lua.execute(resumen)
+    lua.execute((CARPETA / "VentanaAdelantadas.lua").read_text(encoding="utf-8"))
+    return lua
+
+
+def lineas_adelantadas(lua):
+    return a_python(lua.globals().WowAlertsVentanaAdelantadas.Lineas())
+
+
+def filas_de(datos):
+    return {f["nombre"]: f for c in datos["cuentas"] for f in c["filas"]}
+
+
+def apuntar(lua, clave, en, quedan, pendientes=0):
+    lua.execute(
+        "WowAlertsExportDB = WowAlertsExportDB or {}\n"
+        "WowAlertsExportDB.adelantadasVistas = WowAlertsExportDB.adelantadasVistas or {}\n"
+        f'WowAlertsExportDB.adelantadasVistas["{clave}"] = '
+        f"{{ en = {en}, quedan = {quedan}, pendientes = {pendientes} }}"
+    )
+
+
+def test_sin_apuntes_la_ventana_dice_lo_mismo_que_discord():
+    datos = lineas_adelantadas(con_ventana_adelantadas())
+
+    assert datos["titulo"] == "Te han adelantado - 7 subastas - hace 25 min"
+    assert [c["nombre"] for c in datos["cuentas"]] == ["WoW 2", "WoW 3"]
+    pepe = filas_de(datos)["Pepe"]
+    assert (pepe["n"], pepe["caras"], pepe["hecho"], pepe["actual"]) == (2, 1, False, True)
+    assert filas_de(datos)["Mbarval"]["actual"] is False
+
+
+def test_lo_repuesto_despues_del_volcado_se_tacha():
+    lua = con_ventana_adelantadas()
+    apuntar(lua, "Sanguino-Pepe", en=1756500000 - 60, quedan=0)
+
+    datos = lineas_adelantadas(lua)
+    assert filas_de(datos)["Pepe"]["hecho"] is True
+    assert datos["total"] == 5
+    assert datos["titulo"].startswith("Te han adelantado - 5 subastas")
+
+
+def test_a_medias_sale_lo_que_queda():
+    lua = con_ventana_adelantadas()
+    apuntar(lua, "Sanguino-Pepe", en=1756500000 - 60, quedan=0, pendientes=1)
+
+    pepe = filas_de(lineas_adelantadas(lua))["Pepe"]
+    assert (pepe["n"], pepe["caras"], pepe["hecho"]) == (1, 1, False)
+
+
+def test_un_apunte_de_antes_del_volcado_no_cuenta():
+    lua = con_ventana_adelantadas()
+    apuntar(lua, "Sanguino-Pepe", en=1756500000 - 41 * 60, quedan=0)
+
+    assert filas_de(lineas_adelantadas(lua))["Pepe"]["n"] == 2
+
+
+def test_la_cuenta_desconocida_sale_como_otros():
+    lua = con_ventana_adelantadas(
+        "WowAlertsAdelantadas = { pasada = AHORA, volcado = AHORA, total = 1, cuentas = {"
+        " { personajes = { { nombre = 'Pepe', reino = 'Sanguino', n = 1, caras = 0 } } } } }"
+    )
+    assert [c["nombre"] for c in lineas_adelantadas(lua)["cuentas"]] == ["Otros"]
+
+
+def test_sin_nada_adelantado_lo_dice():
+    lua = con_ventana_adelantadas(
+        "WowAlertsAdelantadas = { pasada = AHORA - 3 * 3600, volcado = AHORA, total = 0, cuentas = {} }"
+    )
+    datos = lineas_adelantadas(lua)
+    assert (datos["titulo"], datos["total"]) == ("Nada adelantado - hace 3 h", 0)
+
+
+def test_sin_resumen_no_hay_lineas_ni_errores():
+    lua = con_ventana_adelantadas(resumen=None)
+    assert lua.globals().WowAlertsVentanaAdelantadas.Lineas() is None
+
+    lua.globals().SlashCmdList.WOWALERTS("adelantadas")
+    assert lua.globals().WowAlertsAdelantadasMarco is None
+    assert any("adelantado" in m for m in a_python(lua.globals().mensajes))
+
+
+def test_al_entrar_se_abre_sola_si_hay_algo():
+    lua = con_ventana_adelantadas()
+    lua.globals().DISPARAR("PLAYER_LOGIN")
+
+    marco = lua.globals().WowAlertsAdelantadasMarco
+    assert marco is not None
+    assert marco.IsShown(marco)
+
+
+def test_al_entrar_no_se_abre_si_no_hay_nada():
+    lua = con_ventana_adelantadas(
+        "WowAlertsAdelantadas = { pasada = AHORA, volcado = AHORA, total = 0, cuentas = {} }"
+    )
+    lua.globals().DISPARAR("PLAYER_LOGIN")
+
+    assert lua.globals().WowAlertsAdelantadasMarco is None
+
+
+def test_el_comando_la_abre_y_la_cierra():
+    lua = con_ventana_adelantadas()
+    comando = lua.globals().SlashCmdList.WOWALERTS
+
+    comando("adelantadas")
+    marco = lua.globals().WowAlertsAdelantadasMarco
+    assert marco.IsShown(marco)
+
+    comando("adelantadas")
+    assert not marco.IsShown(marco)
+
+
+def test_el_comando_sin_argumentos_sigue_igual():
+    lua = con_ventana_adelantadas()
+    lua.globals().SlashCmdList.WOWALERTS("")
+
+    assert lua.globals().WowAlertsAdelantadasMarco is None
+    assert any("WoW Alerts v" in m for m in a_python(lua.globals().mensajes))
+
+
+def test_ventana_adelantadas_compila_y_es_ascii():
+    codigo = (CARPETA / "VentanaAdelantadas.lua").read_bytes()
+    codigo.decode("ascii")
+    lupa.LuaRuntime().compile(codigo.decode("ascii"))
+
+
+def test_ventana_adelantadas_no_pisa_su_propio_global():
+    codigo = (CARPETA / "VentanaAdelantadas.lua").read_text(encoding="utf-8")
+    modulo = re.search(r"^(\w+)\s*=\s*V\s*$", codigo, re.MULTILINE).group(1)
+    assert modulo == "WowAlertsVentanaAdelantadas"
+    assert modulo not in re.findall(r'CreateFrame\(\s*"[^"]*"\s*,\s*"([^"]+)"', codigo)
