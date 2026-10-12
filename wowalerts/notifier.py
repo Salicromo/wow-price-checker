@@ -427,6 +427,44 @@ def _repartir(lineas: list[str], presupuesto: int) -> list[list[str]]:
     return grupos
 
 
+def resumen_adelantadas(
+    undercuts: Sequence[Undercut],
+    orden: Mapping[tuple[str, str], int] | None = None,
+) -> list[dict[str, Any]]:
+    """Quien tiene algo adelantado, por cuenta y en el orden del selector.
+
+    Es lo que dice el aviso de Discord, y tambien lo que lee la ventana del
+    addon: sale de aqui para que los dos no puedan contar cosas distintas.
+    """
+    # dict normal: conserva el orden de llegada para quien no este en `orden`.
+    por_personaje: dict[tuple[str, str, object], list[Undercut]] = {}
+    for undercut in undercuts:
+        clave = (
+            undercut.mine.character,
+            undercut.mine.realm,
+            undercut.mine.account,
+        )
+        por_personaje.setdefault(clave, []).append(undercut)
+
+    # Las cuentas salen en el orden de su primer personaje, asi que el orden de
+    # personajes.yaml decide tambien que cuenta va primero.
+    por_cuenta: dict[object, list[dict[str, Any]]] = {}
+    for (character, realm, account), suyas in _en_orden(por_personaje, orden):
+        por_cuenta.setdefault(account, []).append(
+            {
+                "nombre": character,
+                "reino": realm,
+                "n": len(suyas),
+                # Las caras son las que mas merece la pena ir a recolocar primero.
+                "caras": sum(1 for u in suyas if u.my_price_gold > UNDERCUT_CARO_GOLD),
+            }
+        )
+    return [
+        {"cuenta": cuenta, "personajes": personajes}
+        for cuenta, personajes in por_cuenta.items()
+    ]
+
+
 def build_undercut_messages(
     undercuts: Sequence[Undercut],
     ya_avisados: Sequence[Undercut] = (),
@@ -462,38 +500,25 @@ def _undercut_messages(
 
     todas = list(undercuts) + list(ya_avisados)
 
-    # dict normal: conserva el orden de llegada para quien no este en `orden`.
-    por_personaje: dict[tuple[str, str, object], list[Undercut]] = {}
-    for undercut in todas:
-        clave = (
-            undercut.mine.character,
-            undercut.mine.realm,
-            undercut.mine.account,
-        )
-        por_personaje.setdefault(clave, []).append(undercut)
-
-    # Las cuentas salen en el orden de su primer personaje, asi que el orden de
-    # personajes.yaml decide tambien que cuenta va primero.
-    por_cuenta: dict[object, list[str]] = {}
-    for (character, _realm, account), suyas in _en_orden(por_personaje, orden):
-        linea = f"• {character} — {len(suyas)}"
-        # Las caras son las que mas merece la pena ir a recolocar primero.
-        caras = sum(1 for u in suyas if u.my_price_gold > UNDERCUT_CARO_GOLD)
-        if caras:
-            linea += f" (💰 {caras})"
-        por_cuenta.setdefault(account, []).append(linea)
-
     plural = "subastas" if len(todas) != 1 else "subasta"
     # Una columna por cuenta, lado a lado: inline hace que Discord las ponga en
     # la misma fila (en el movil se apilan).
-    columnas = [
-        {
-            "name": f"WoW {account}" if account is not None else "Otros",
-            "value": "\n".join(lineas),
-            "inline": True,
-        }
-        for account, lineas in por_cuenta.items()
-    ]
+    columnas = []
+    for grupo in resumen_adelantadas(todas, orden):
+        lineas = []
+        for personaje in grupo["personajes"]:
+            linea = f"• {personaje['nombre']} — {personaje['n']}"
+            if personaje["caras"]:
+                linea += f" (💰 {personaje['caras']})"
+            lineas.append(linea)
+        cuenta = grupo["cuenta"]
+        columnas.append(
+            {
+                "name": f"WoW {cuenta}" if cuenta is not None else "Otros",
+                "value": "\n".join(lineas),
+                "inline": True,
+            }
+        )
     embed: dict[str, Any] = {
         "title": f"⚔️ Te han adelantado — {len(todas)} {plural}",
         "color": COLOR_UNDERCUT,

@@ -329,7 +329,7 @@ def test_mensaje_de_prueba(requests_mock):
 # -- Avisos de undercut -----------------------------------------------------
 
 from wowalerts.misubastas import MyAuction
-from wowalerts.notifier import COLOR_UNDERCUT, build_undercut_messages
+from wowalerts.notifier import COLOR_UNDERCUT, build_undercut_messages, resumen_adelantadas
 from wowalerts.undercut import Undercut
 
 
@@ -468,6 +468,37 @@ def test_una_sola_subasta_va_en_singular():
     titulo = build_undercut_messages([un_undercut()])[0]["embeds"][0]["title"]
     assert "1 subasta" in titulo
     assert "subastas" not in titulo
+
+
+def test_el_resumen_agrupa_por_cuenta_y_cuenta_las_caras():
+    resumen = resumen_adelantadas(
+        [
+            un_undercut(personaje="Pepe", cuenta=2, auction_id=1, oro_mio=90_000),
+            un_undercut(personaje="Pepe", cuenta=2, auction_id=2, oro_mio=9_000),
+            un_undercut(personaje="Ana", reino="Kazzak", cuenta=3, auction_id=3),
+        ]
+    )
+    assert resumen == [
+        {"cuenta": 2, "personajes": [{"nombre": "Pepe", "reino": "Sanguino", "n": 2, "caras": 1}]},
+        {"cuenta": 3, "personajes": [{"nombre": "Ana", "reino": "Kazzak", "n": 1, "caras": 0}]},
+    ]
+
+
+def test_el_resumen_sigue_el_orden_del_selector():
+    orden = {("Ana", "Sanguino"): 0, ("Pepe", "Sanguino"): 1}
+    resumen = resumen_adelantadas(
+        [un_undercut(personaje="Pepe", auction_id=1), un_undercut(personaje="Ana", auction_id=2)],
+        orden,
+    )
+    assert [p["nombre"] for p in resumen[0]["personajes"]] == ["Ana", "Pepe"]
+
+
+def test_el_resumen_sin_cuenta_lleva_cuenta_none():
+    assert resumen_adelantadas([un_undercut(cuenta=None)])[0]["cuenta"] is None
+
+
+def test_sin_undercuts_el_resumen_esta_vacio():
+    assert resumen_adelantadas([]) == []
 
 
 def test_las_ya_avisadas_cuentan_con_las_nuevas():
