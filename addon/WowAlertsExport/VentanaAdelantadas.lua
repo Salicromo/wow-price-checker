@@ -167,7 +167,8 @@ local function dibujar(datos)
             l:Hide()
         end
     end
-    marco:SetSize(math.max(1, #datos.cuentas) * ANCHO_COLUMNA + 28, 56 + masFilas * ALTO_LINEA)
+    -- Nunca mas estrecha que dos columnas: con una sola no cabria el titulo.
+    marco:SetSize(math.max(2, #datos.cuentas) * ANCHO_COLUMNA + 28, 56 + masFilas * ALTO_LINEA)
 end
 
 -- La redibuja si esta abierta. No la abre: eso solo al entrar o con /wa.

@@ -4164,3 +4164,25 @@ def test_ventana_adelantadas_no_pisa_su_propio_global():
     modulo = re.search(r"^(\w+)\s*=\s*V\s*$", codigo, re.MULTILINE).group(1)
     assert modulo == "WowAlertsVentanaAdelantadas"
     assert modulo not in re.findall(r'CreateFrame\(\s*"[^"]*"\s*,\s*"([^"]+)"', codigo)
+
+
+def test_con_una_sola_columna_cabe_el_titulo():
+    """Con una sola cuenta adelantada (lo normal) la ventana media 198 px, y
+    "Te han adelantado - 12 subastas - hace 25 min" ocupa unos 270."""
+    lua = con_ventana_adelantadas(
+        "WowAlertsAdelantadas = { pasada = AHORA, volcado = AHORA, total = 1, cuentas = {"
+        " { cuenta = 2, personajes = { { nombre = 'Pepe', reino = 'Sanguino', n = 1, caras = 0 } } } } }"
+    )
+    lua.execute(
+        """
+        local crear = CreateFrame
+        CreateFrame = function(...)
+            local f = crear(...)
+            rawset(f, "SetSize", function(self, ancho) ANCHO = ancho end)
+            return f
+        end
+        """
+    )
+    lua.globals().WowAlertsVentanaAdelantadas.Mostrar()
+
+    assert lua.globals().ANCHO >= 300
