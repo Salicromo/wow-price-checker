@@ -31,6 +31,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from wowalerts.adelantadas import a_lua as adelantadas_a_lua
 from wowalerts.banco import compartir_banco
 from wowalerts.journalator import (
     apuntes_de_wow,
@@ -188,6 +189,69 @@ REMOTO_DATOS = "privado"
 AUTOR_DATOS = ("volcado", "volcado@wow-alerts.local")
 
 MENSAJE_DATOS = "Actualiza el volcado de mis subastas"
+
+# El resumen de lo adelantado lo publica el vigilante en la rama 'datos' del
+# repositorio privado (junto a los ficheros de la app). Se trae a una copia
+# aparte y sin arbol de trabajo, para no tocar la de 'subastas' que usa la
+# subida, y se deja en la carpeta del addon del juego, que es lo unico que el
+# addon puede leer.
+RAMA_ADELANTADAS = "datos"
+FICHERO_ADELANTADAS = "adelantadas.json"
+# Con --vigilar, cada cuanto se mira si hay uno nuevo aunque WoW no guarde nada:
+# asi ya esta al dia antes de entrar con el siguiente personaje.
+SEGUNDOS_ENTRE_ADELANTADAS = 300
+
+
+def traer_adelantadas(raiz: Path, wow_root: Path) -> bool:
+    """Deja en el addon el ultimo resumen de lo adelantado. True si ha escrito.
+
+    Cualquier fallo deja el Adelantadas.lua anterior y solo se apunta en el log:
+    esto no puede tumbar la sincronizacion de las subastas.
+    """
+    destino = wow_root / "Interface" / "AddOns" / "WowAlertsExport"
+    if not destino.is_dir():
+        log.info("El addon no esta en %s: no traigo lo adelantado.", wow_root)
+        return False
+
+    url = git("remote", "get-url", REMOTO_DATOS, cwd=raiz).stdout.strip()
+    if not url:
+        log.info("Sin el remoto %r no puedo traer lo adelantado.", REMOTO_DATOS)
+        return False
+
+    copia = raiz / ".state" / "rama-adelantadas"
+    if not (copia / "HEAD").is_file():
+        copia.mkdir(parents=True, exist_ok=True)
+        if git("init", "-q", "--bare", cwd=copia).returncode != 0:
+            log.warning("No he podido preparar %s.", copia)
+            return False
+
+    traer = git("fetch", "-q", "--depth=1", url, RAMA_ADELANTADAS, cwd=copia)
+    if traer.returncode != 0:
+        log.warning("No he podido traer lo adelantado: %s", traer.stderr.strip())
+        return False
+    leido = git("show", f"FETCH_HEAD:{FICHERO_ADELANTADAS}", cwd=copia)
+    if leido.returncode != 0:
+        log.info("Todavia no hay %s publicado.", FICHERO_ADELANTADAS)
+        return False
+
+    try:
+        # json.JSONDecodeError es un ValueError.
+        texto = adelantadas_a_lua(json.loads(leido.stdout))
+    except ValueError as fallo:
+        log.warning("El resumen de lo adelantado no se entiende: %s", fallo)
+        return False
+
+    fichero = destino / "Adelantadas.lua"
+    try:
+        if fichero.is_file() and fichero.read_text(encoding="utf-8") == texto:
+            return False
+        # newline="\n": el mismo fichero byte a byte en Windows y en la Deck.
+        fichero.write_text(texto, encoding="utf-8", newline="\n")
+    except OSError as fallo:
+        log.warning("No he podido escribir %s: %s", fichero, fallo)
+        return False
+    log.info("⚔️ Lo adelantado, al dia en %s.", fichero)
+    return True
 
 
 def _preparar_rama(raiz: Path, copia: Path, push: bool) -> int:
@@ -497,6 +561,11 @@ def _sincronizar(args: argparse.Namespace) -> int:
         )
         return EXIT_ERROR
 
+    # Antes que nada: no depende de que haya subastas que subir, y es lo que
+    # vas a mirar al entrar con el siguiente personaje.
+    if not args.dry_run:
+        traer_adelantadas(Path(__file__).resolve().parent, wow_root)
+
     # El banco de hermandad, de la cuenta de WoW que lo vio a las demas. Va lo
     # primero: no depende de que haya subastas que subir.
     if not args.dry_run:
@@ -686,10 +755,16 @@ def vigilar(args: argparse.Namespace) -> int:
         "personajes o cierres el juego. Ctrl+C para parar.",
         wow_root,
     )
+    raiz = Path(__file__).resolve().parent
+    traer_adelantadas(raiz, wow_root)
+    traido_en = time.monotonic()
     anterior = firma_de_los_volcados(wow_root)
     try:
         while True:
             time.sleep(args.vigilar_cada)
+            if time.monotonic() - traido_en >= SEGUNDOS_ENTRE_ADELANTADAS:
+                traido_en = time.monotonic()
+                traer_adelantadas(raiz, wow_root)
             actual = firma_de_los_volcados(wow_root)
             if actual == anterior:
                 continue

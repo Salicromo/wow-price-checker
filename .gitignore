@@ -25,3 +25,4 @@ web.db-shm
 # lo genera generar_vigilados.py en cada maquina.
 personajes.yaml
 addon/WowAlertsExport/Personajes.lua
+addon/WowAlertsExport/Adelantadas.lua

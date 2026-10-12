@@ -521,3 +521,116 @@ def test_si_discord_tampoco_responde_lo_intenta_la_vez_siguiente(tmp_path):
     sync.subir_avisando([], True, raiz, discord)
 
     assert len(discord.avisos) == 1
+
+
+# -- Lo adelantado, del repositorio privado a la carpeta del addon ------------
+
+RESUMEN = {
+    "version": 1, "pasada": 2000, "volcado": 1000, "total": 1,
+    "cuentas": [{"cuenta": 2, "personajes": [{"nombre": "Pepé", "reino": "Zul'jin", "n": 1, "caras": 0}]}],
+}
+
+
+def remoto_con_adelantadas(tmp_path, contenido):
+    """Un remoto con la rama 'datos', como la deja el workflow."""
+    bare = remoto_vacio(tmp_path)
+    obra = tmp_path / "publicar"
+    obra.mkdir()
+    git_en(obra, "init", "-q", "-b", "datos")
+    (obra / "adelantadas.json").write_text(contenido, encoding="utf-8")
+    git_en(obra, "add", "-A")
+    git_en(obra, "commit", "-q", "-m", "Datos de la app")
+    git_en(obra, "push", "-q", str(bare), "datos")
+    return bare
+
+
+def wow_con_addon(tmp_path):
+    wow = tmp_path / "wow"
+    (wow / "Interface" / "AddOns" / "WowAlertsExport").mkdir(parents=True)
+    return wow
+
+
+def fichero_lua(wow):
+    return wow / "Interface" / "AddOns" / "WowAlertsExport" / "Adelantadas.lua"
+
+
+def test_trae_lo_adelantado_a_la_carpeta_del_addon(tmp_path):
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(remoto_con_adelantadas(tmp_path, json.dumps(RESUMEN))))
+    wow = wow_con_addon(tmp_path)
+
+    assert sync.traer_adelantadas(raiz, wow) is True
+
+    texto = fichero_lua(wow).read_text(encoding="utf-8")
+    assert "WowAlertsAdelantadas" in texto
+    assert '"Pepé"' in texto
+    assert "\"Zul'jin\"" in texto
+
+
+def test_sin_cambios_no_reescribe_el_lua(tmp_path):
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(remoto_con_adelantadas(tmp_path, json.dumps(RESUMEN))))
+    wow = wow_con_addon(tmp_path)
+    sync.traer_adelantadas(raiz, wow)
+
+    assert sync.traer_adelantadas(raiz, wow) is False
+
+
+def test_sin_el_addon_instalado_no_crea_nada(tmp_path):
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(remoto_con_adelantadas(tmp_path, json.dumps(RESUMEN))))
+    wow = tmp_path / "wow"
+    wow.mkdir()
+
+    assert sync.traer_adelantadas(raiz, wow) is False
+    assert not (wow / "Interface").exists()
+
+
+def test_sin_red_se_queda_el_anterior(tmp_path):
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(tmp_path / "no-existe.git"))
+    wow = wow_con_addon(tmp_path)
+    fichero_lua(wow).write_text("-- el de antes\n", encoding="utf-8")
+
+    assert sync.traer_adelantadas(raiz, wow) is False
+    assert fichero_lua(wow).read_text(encoding="utf-8") == "-- el de antes\n"
+
+
+def test_un_resumen_roto_deja_el_anterior(tmp_path):
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(remoto_con_adelantadas(tmp_path, "{roto")))
+    wow = wow_con_addon(tmp_path)
+    fichero_lua(wow).write_text("-- el de antes\n", encoding="utf-8")
+
+    assert sync.traer_adelantadas(raiz, wow) is False
+    assert fichero_lua(wow).read_text(encoding="utf-8") == "-- el de antes\n"
+
+
+def test_sin_el_remoto_privado_no_hace_nada(tmp_path):
+    raiz = repo_de_trabajo(tmp_path)
+    wow = wow_con_addon(tmp_path)
+
+    assert sync.traer_adelantadas(raiz, wow) is False
+    assert not fichero_lua(wow).exists()
+
+
+def test_vigilar_trae_lo_adelantado_al_arrancar_y_cada_cinco_minutos(tmp_path, monkeypatch):
+    traidas = []
+    monkeypatch.setattr(sync, "traer_adelantadas", lambda raiz, wow_root: traidas.append(wow_root))
+    monkeypatch.setattr(sync, "firma_de_los_volcados", lambda wow_root: ())
+    reloj = {"t": 0}
+    vueltas = {"n": 0}
+
+    def dormir(segundos):
+        vueltas["n"] += 1
+        if vueltas["n"] > 7:
+            raise KeyboardInterrupt
+        reloj["t"] += 60
+
+    monkeypatch.setattr(sync.time, "sleep", dormir)
+    monkeypatch.setattr(sync.time, "monotonic", lambda: reloj["t"])
+    args = sync.build_parser().parse_args(["--vigilar", "--wow-root", str(tmp_path)])
+
+    assert sync.vigilar(args) == sync.EXIT_OK
+    # Una al arrancar y otra al llegar a los 300 s; a los 420 todavia no toca.
+    assert len(traidas) == 2
