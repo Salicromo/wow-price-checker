@@ -1999,7 +1999,60 @@ local function colocarBoton(padre)
     boton:Show()
 end
 
+-- ---------------------------------------------------------------------------
+--  Lo que queda adelantado, para la ventana de adelantadas
+-- ---------------------------------------------------------------------------
+--  La ventana de VentanaAdelantadas.lua ensena el resumen del vigilante, que
+--  llega una vez por hora. Para ir tachando sin esperar, aqui se apunta por
+--  personaje cuantas quedan adelantadas y cuantas canceladas esperan a volver
+--  a ponerse. Solo con la lista entera y todo lo vigilado ya mirado: al entrar
+--  todo sale "sin mirar", y apuntar un cero entonces tacharia un personaje sin
+--  haberlo comprobado.
+
+function R.ResumenPersonaje()
+    if not casaAbierta() or not subastasListas() then
+        return nil
+    end
+    local quedan, enLista = 0, {}
+    for _, fila in ipairs(R.Subastas()) do
+        enLista[fila.auctionID] = true
+        if fila.grupo == "sinmirar" then
+            return nil
+        elseif fila.grupo == "adelantada" then
+            quedan = quedan + 1
+        end
+    end
+    -- Las de la cola que ya no estan en la casa: canceladas, en el buzon o en
+    -- la bolsa, esperando a postearse otra vez.
+    local pendientes = 0
+    for _, entrada in ipairs(cola()) do
+        if not enLista[entrada.auctionID] then
+            pendientes = pendientes + 1
+        end
+    end
+    return { quedan = quedan, pendientes = pendientes }
+end
+
+local function apuntarAdelantadas()
+    local resumen = R.ResumenPersonaje()
+    if not resumen then
+        return
+    end
+    resumen.en = time()
+    WowAlertsExportDB.adelantadasVistas = WowAlertsExportDB.adelantadasVistas or {}
+    WowAlertsExportDB.adelantadasVistas[clavePersonaje()] = resumen
+    -- Con pcall por lo mismo que la otra ventana: un error suyo no debe dejar
+    -- el boton del reposteo sin actualizar.
+    if WowAlertsVentanaAdelantadas and WowAlertsVentanaAdelantadas.Refrescar then
+        local ok, error_ = pcall(WowAlertsVentanaAdelantadas.Refrescar)
+        if not ok then
+            traza("WowAlertsVentanaAdelantadas.Refrescar ha fallado: %s", error_)
+        end
+    end
+end
+
 function R.refrescarPanel()
+    apuntarAdelantadas()
     -- La interfaz de la casa se carga bajo demanda: si al abrir aun no existia,
     -- el boton se coloca en el siguiente refresco.
     if casaAbierta() and (not boton or boton:GetParent() ~= AuctionHouseFrame) then

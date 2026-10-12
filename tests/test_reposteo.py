@@ -3161,6 +3161,93 @@ def test_lo_recien_repuesto_sale_aunque_la_lista_del_juego_no_lo_traiga():
     assert fila["ilvl"] == 311
 
 
+# -- Lo que queda adelantado, para la ventana de adelantadas ------------------
+
+
+def vistas(lua):
+    return a_python(lua.eval("(WowAlertsExportDB.adelantadasVistas or {})"))
+
+
+def refrescar(lua):
+    lua.globals().WowAlertsReposteo.refrescarPanel()
+
+
+def test_tras_buscar_se_apunta_cuantas_quedan_adelantadas():
+    lua = runtime()
+    adelantadas(lua, 10, 12)
+    refrescar(lua)
+
+    apunte = vistas(lua)["Sanguino-Pepe"]
+    assert (apunte["quedan"], apunte["pendientes"], apunte["en"]) == (2, 0, 1756500000)
+
+
+def test_sin_buscar_no_se_apunta_nada():
+    """Al entrar todo esta "sin mirar": apuntar cero lo tacharia sin comprobarlo."""
+    lua = runtime(subastas=[mia(10, 100_000)])
+    abrir_casa(lua)
+    lua.globals().DISPARAR("OWNED_AUCTIONS_UPDATED")
+    refrescar(lua)
+
+    assert vistas(lua) == []
+
+
+def test_con_la_casa_cerrada_no_se_apunta_nada():
+    lua = runtime()
+    refrescar(lua)
+
+    assert vistas(lua) == []
+
+
+def test_lo_cancelado_sin_volver_a_poner_cuenta_como_pendiente():
+    lua = runtime()
+    devolver(lua, 10)
+    en_la_casa(lua, [])
+    abrir_casa(lua)
+    lua.globals().DISPARAR("OWNED_AUCTIONS_UPDATED")
+    refrescar(lua)
+
+    apunte = vistas(lua)["Sanguino-Pepe"]
+    assert (apunte["quedan"], apunte["pendientes"]) == (0, 1)
+
+
+def test_repuesto_todo_queda_a_cero():
+    lua = runtime()
+    adelantadas(lua, 10)
+    pulsar(lua)
+    lua.globals().DISPARAR("AUCTION_CANCELED", 10)
+    poner(lua, "SUBASTAS", [])
+    en_la_bolsa(lua, 3)
+    assert pulsar(lua) == "postear"
+    nueva = 5000 + len(llamadas(lua))
+    poner(lua, "SUBASTAS", [mia(nueva, 90_000)])
+    lua.globals().DISPARAR("OWNED_AUCTIONS_UPDATED")
+    refrescar(lua)
+
+    apunte = vistas(lua)["Sanguino-Pepe"]
+    assert (apunte["quedan"], apunte["pendientes"]) == (0, 0)
+
+
+def test_al_apuntar_se_avisa_a_la_ventana_de_adelantadas():
+    lua = runtime()
+    lua.execute(
+        "REFRESCOS = 0\n"
+        "WowAlertsVentanaAdelantadas = { Refrescar = function() REFRESCOS = REFRESCOS + 1 end }"
+    )
+    adelantadas(lua, 10)
+    refrescar(lua)
+
+    assert lua.globals().REFRESCOS >= 1
+
+
+def test_un_fallo_de_la_ventana_de_adelantadas_no_rompe_el_refresco():
+    lua = runtime()
+    lua.execute("WowAlertsVentanaAdelantadas = { Refrescar = function() error('rota') end }")
+    adelantadas(lua, 10)
+    refrescar(lua)
+
+    assert vistas(lua)["Sanguino-Pepe"]["quedan"] == 1
+
+
 def test_la_fila_de_lo_recien_repuesto_no_se_queda_colgada():
     """Si se vende, sale de la lista del juego sin avisar: pasado un rato esa
     fila inventada desaparece en vez de mentir."""
