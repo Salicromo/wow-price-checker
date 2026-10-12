@@ -137,3 +137,11 @@ def test_sin_apuntes_el_lua_lleva_la_tabla_vacia():
     lua = lupa.LuaRuntime(unpack_returned_tuples=True)
     lua.execute(a_lua(datos))
     assert len(lua.eval("WowAlertsAdelantadas.vistas")) == 0
+
+
+def test_el_lua_lleva_la_cuenta_de_cada_personaje():
+    datos = {"version": 1, "pasada": 1, "volcado": 1, "total": 0, "cuentas": []}
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(a_lua(datos, cuentas_de={"Zul'jin-Pepe": 2, "Kazzak-Ana": 3}))
+    personajes = lua.eval("WowAlertsAdelantadas.personajes")
+    assert (personajes["Zul'jin-Pepe"], personajes["Kazzak-Ana"]) == (2, 3)

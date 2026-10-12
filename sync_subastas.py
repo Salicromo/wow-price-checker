@@ -260,7 +260,15 @@ def traer_adelantadas(raiz: Path, wow_root: Path) -> bool:
 
     try:
         # json.JSONDecodeError es un ValueError.
-        texto = adelantadas_a_lua(json.loads(publicado), vistas)
+        texto = adelantadas_a_lua(
+            json.loads(publicado),
+            vistas,
+            {
+                f"{p.realm}-{p.name}": p.account
+                for p in leer_personajes(wow_root)
+                if p.account is not None
+            },
+        )
     except ValueError as fallo:
         log.warning("El resumen de lo adelantado no se entiende: %s", fallo)
         return False

@@ -701,3 +701,15 @@ def test_sin_red_se_rehace_el_lua_con_la_copia_del_resumen(tmp_path):
     texto = fichero_lua(wow).read_text(encoding="utf-8")
     assert "WowAlertsAdelantadas" in texto
     assert '["Kazzak-Ana"] = { en = 1700' in texto
+
+
+def test_el_lua_lleva_la_cuenta_de_tus_personajes(tmp_path):
+    """Para saber a quien entrar despues estando con alguien fuera del resumen."""
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(remoto_con_adelantadas(tmp_path, json.dumps(RESUMEN))))
+    wow = wow_con_addon(tmp_path)
+    (wow / "WTF" / "Account" / "111#2" / "Zul'jin" / "Pepe").mkdir(parents=True)
+
+    sync.traer_adelantadas(raiz, wow)
+
+    assert "[\"Zul'jin-Pepe\"] = 2," in fichero_lua(wow).read_text(encoding="utf-8")

@@ -2,7 +2,7 @@
 ## Title: WoW Alerts Export
 ## Notes: Exporta tus subastas activas y repostea lo adelantado con una tecla.
 ## Author: wow-price-checker
-## Version: 1.40
+## Version: 1.41
 ## SavedVariables: WowAlertsExportDB
 
 Vigilados.lua

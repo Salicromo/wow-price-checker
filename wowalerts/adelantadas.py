@@ -114,11 +114,16 @@ def juntar_vistas(
 
 
 def a_lua(
-    datos: Mapping[str, Any], vistas: Mapping[str, Mapping[str, int]] | None = None
+    datos: Mapping[str, Any],
+    vistas: Mapping[str, Mapping[str, int]] | None = None,
+    cuentas_de: Mapping[str, int] | None = None,
 ) -> str:
     """El contenido de Adelantadas.lua. ValueError si `datos` no tiene la forma.
 
-    `vistas` son los apuntes de todas las cuentas (ver `juntar_vistas`).
+    `vistas` son los apuntes de todas las cuentas (ver `juntar_vistas`), y
+    `cuentas_de` dice de que cuenta es cada personaje ("Reino-Nombre" -> n):
+    con eso la ventana sabe a quien entrar despues aunque el personaje en el
+    que estas no salga en el resumen.
     """
     if not isinstance(datos, Mapping):
         raise ValueError("el resumen deberia ser un objeto JSON")
@@ -160,5 +165,8 @@ def a_lua(
             f"en = {apunte['en']}, quedan = {apunte['quedan']}, "
             f"pendientes = {apunte['pendientes']} }},"
         )
+    lineas += ["    },", "    personajes = {"]
+    for clave, cuenta in sorted((cuentas_de or {}).items()):
+        lineas.append(f"        [{_cadena_lua(clave)}] = {cuenta},")
     lineas += ["    },", "}"]
     return "\n".join(lineas) + "\n"

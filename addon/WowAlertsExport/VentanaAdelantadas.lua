@@ -16,8 +16,13 @@ local ICONO_ORO = "|TInterface\\MoneyFrame\\UI-GoldIcon:0|t"
 local ICONO_HECHO = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t"
 local COLOR_HECHO = "|cff808080"
 local COLOR_ACTUAL = "|cffffd100"
+local COLOR_SIGUIENTE = "|cff40ff40"
+-- La franja detras de la linea del personaje actual y la del siguiente.
+local FRANJA_ACTUAL = { 1, 0.82, 0, 0.18 }
+local FRANJA_SIGUIENTE = { 0.25, 1, 0.25, 0.15 }
+local ALTO_PIE = 18
 
-local marco, titulo
+local marco, titulo, pie
 local columnas = {}
 
 local function valido(apunte)
@@ -51,6 +56,43 @@ local function hace(segundos)
     return "hace " .. math.floor(minutos / 60) .. " h"
 end
 
+-- A que personaje entrar al salir de este: en la columna de tu cuenta, el
+-- primero sin tachar por debajo del actual, volviendo arriba al acabar. Solo de
+-- tu cuenta, que son los unicos del selector. Si este personaje no sale en el
+-- resumen, su cuenta la dice WowAlertsAdelantadas.personajes (la escribe
+-- sync_subastas.py desde las carpetas de WoW) y se empieza por arriba.
+-- Marca la fila con `siguiente` y devuelve su nombre, o nil.
+local function marcarSiguiente(cuentas, personajes, clave)
+    local columna, desde = nil, 0
+    for _, cuenta in ipairs(cuentas) do
+        for i, f in ipairs(cuenta.filas) do
+            if f.actual then
+                columna, desde = cuenta, i
+            end
+        end
+    end
+    if not columna then
+        local miCuenta = type(personajes) == "table" and personajes[clave] or nil
+        for _, cuenta in ipairs(cuentas) do
+            if miCuenta and cuenta.cuenta == miCuenta then
+                columna = cuenta
+            end
+        end
+    end
+    if not columna then
+        return nil
+    end
+    local filas = columna.filas
+    for paso = 1, #filas do
+        local f = filas[(desde + paso - 1) % #filas + 1]
+        if not f.hecho and not f.actual then
+            f.siguiente = true
+            return f.nombre
+        end
+    end
+    return nil
+end
+
 function V.Lineas()
     local datos = WowAlertsAdelantadas
     if type(datos) ~= "table" or type(datos.cuentas) ~= "table" then
@@ -80,9 +122,11 @@ function V.Lineas()
         end
         cuentas[#cuentas + 1] = {
             nombre = grupo.cuenta and ("WoW " .. grupo.cuenta) or "Otros",
+            cuenta = grupo.cuenta,
             filas = filas,
         }
     end
+    local siguiente = marcarSiguiente(cuentas, datos.personajes, miReino .. "-" .. yo)
     local cuando = hace(time() - (tonumber(datos.pasada) or 0))
     local texto
     if total == 0 then
@@ -91,7 +135,7 @@ function V.Lineas()
         texto = ("Te han adelantado - %d %s - %s"):format(
             total, total == 1 and "subasta" or "subastas", cuando)
     end
-    return { titulo = texto, total = total, cuentas = cuentas }
+    return { titulo = texto, total = total, cuentas = cuentas, siguiente = siguiente }
 end
 
 local function textoDeFila(f)
@@ -103,7 +147,9 @@ local function textoDeFila(f)
         texto = texto .. " (" .. ICONO_ORO .. " " .. f.caras .. ")"
     end
     if f.actual then
-        texto = COLOR_ACTUAL .. texto .. "|r"
+        texto = COLOR_ACTUAL .. "> " .. texto .. "|r"
+    elseif f.siguiente then
+        texto = COLOR_SIGUIENTE .. texto .. "|r"
     end
     return texto
 end
@@ -137,6 +183,8 @@ local function crearMarco()
     -- Titulo propio anclado a TitleBg, como en Ventana.lua.
     titulo = marco:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     titulo:SetPoint("TOP", marco.TitleBg, "TOP", 0, -3)
+    pie = marco:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    pie:SetPoint("BOTTOMLEFT", marco, "BOTTOMLEFT", 14, 10)
 end
 
 local function columna(i)
@@ -155,9 +203,22 @@ local function linea(c, j)
     if not l then
         l = marco:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         l:SetPoint("TOPLEFT", c.cabecera, "BOTTOMLEFT", 0, -4 - (j - 1) * ALTO_LINEA)
+        l.franja = marco:CreateTexture(nil, "BACKGROUND")
+        l.franja:SetPoint("TOPLEFT", l, "TOPLEFT", -4, 2)
+        l.franja:SetSize(ANCHO_COLUMNA - 6, ALTO_LINEA)
         c.lineas[j] = l
     end
     return l
+end
+
+local function pintarFranja(l, f)
+    local color = (f.actual and FRANJA_ACTUAL) or (f.siguiente and FRANJA_SIGUIENTE)
+    if color then
+        l.franja:SetColorTexture(color[1], color[2], color[3], color[4])
+        l.franja:Show()
+    else
+        l.franja:Hide()
+    end
 end
 
 local function dibujar(datos)
@@ -171,9 +232,11 @@ local function dibujar(datos)
             local l = linea(c, j)
             l:SetText(textoDeFila(f))
             l:Show()
+            pintarFranja(l, f)
         end
         for j = #cuenta.filas + 1, #c.lineas do
             c.lineas[j]:Hide()
+            c.lineas[j].franja:Hide()
         end
         masFilas = math.max(masFilas, #cuenta.filas)
     end
@@ -181,10 +244,21 @@ local function dibujar(datos)
         columnas[i].cabecera:Hide()
         for _, l in ipairs(columnas[i].lineas) do
             l:Hide()
+            l.franja:Hide()
         end
     end
+    -- Abajo, a quien entrar al salir: en el selector de personajes no corre
+    -- ningun addon, asi que hay que verlo antes de salir.
+    local alto = 56 + masFilas * ALTO_LINEA
+    if datos.siguiente then
+        pie:SetText(COLOR_SIGUIENTE .. "Siguiente: " .. datos.siguiente .. "|r")
+        pie:Show()
+        alto = alto + ALTO_PIE
+    else
+        pie:Hide()
+    end
     -- Nunca mas estrecha que dos columnas: con una sola no cabria el titulo.
-    marco:SetSize(math.max(2, #datos.cuentas) * ANCHO_COLUMNA + 28, 56 + masFilas * ALTO_LINEA)
+    marco:SetSize(math.max(2, #datos.cuentas) * ANCHO_COLUMNA + 28, alto)
 end
 
 -- La redibuja si esta abierta. No la abre: eso solo al entrar o con /wa.

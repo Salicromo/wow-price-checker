@@ -2055,7 +2055,7 @@ def test_la_version_del_toc_es_la_del_addon():
 
     en_toc = re.search(r"^## Version: (.+)$", toc, re.MULTILINE).group(1).strip()
     en_lua = re.search(r'^local ADDON_VERSION = "(.+)"$', lua, re.MULTILINE).group(1)
-    assert en_toc == en_lua == "1.40"
+    assert en_toc == en_lua == "1.41"
 
 
 # -- Lo que el juego confirma y lo que se repone por fuera --------------------
@@ -4254,3 +4254,99 @@ def test_entre_el_apunte_propio_y_el_de_la_otra_cuenta_gana_el_ultimo():
 
     apuntar(lua, "Sanguino-Pepe", en=1756500000 - 30, quedan=1)
     assert filas_de(lineas_adelantadas(lua))["Pepe"]["n"] == 1
+
+
+# -- El siguiente personaje al que entrar -----------------------------------------
+
+TRES_EN_WOW2 = """
+WowAlertsAdelantadas = {
+    pasada = AHORA - 60, volcado = AHORA - 600, total = 6,
+    cuentas = {
+        { cuenta = 2, personajes = {
+            { nombre = "Ana", reino = "Kazzak", n = 1, caras = 0 },
+            { nombre = "Pepe", reino = "Sanguino", n = 2, caras = 0 },
+            { nombre = "Mbarval", reino = "Sanguino", n = 1, caras = 0 },
+            { nombre = "Bea", reino = "Kazzak", n = 1, caras = 0 },
+        } },
+        { cuenta = 3, personajes = {
+            { nombre = "Otro", reino = "Kazzak", n = 1, caras = 0 },
+        } },
+    },
+}
+"""
+
+
+def siguiente(lua):
+    datos = lineas_adelantadas(lua)
+    marcadas = [f["nombre"] for f in filas_de(datos).values() if f.get("siguiente")]
+    return datos.get("siguiente"), marcadas
+
+
+def test_el_siguiente_es_el_de_debajo():
+    lua = con_ventana_adelantadas(TRES_EN_WOW2)
+    assert siguiente(lua) == ("Mbarval", ["Mbarval"])
+
+
+def test_el_siguiente_se_salta_lo_tachado():
+    lua = con_ventana_adelantadas(TRES_EN_WOW2)
+    apuntar(lua, "Sanguino-Mbarval", en=1756500000 - 30, quedan=0)
+    assert siguiente(lua) == ("Bea", ["Bea"])
+
+
+def test_al_acabar_la_lista_vuelve_al_principio():
+    lua = con_ventana_adelantadas(TRES_EN_WOW2)
+    apuntar(lua, "Sanguino-Mbarval", en=1756500000 - 30, quedan=0)
+    apuntar(lua, "Kazzak-Bea", en=1756500000 - 30, quedan=0)
+    assert siguiente(lua) == ("Ana", ["Ana"])
+
+
+def test_con_todo_tachado_no_hay_siguiente():
+    lua = con_ventana_adelantadas(TRES_EN_WOW2)
+    for clave in ("Kazzak-Ana", "Sanguino-Mbarval", "Kazzak-Bea"):
+        apuntar(lua, clave, en=1756500000 - 30, quedan=0)
+    assert siguiente(lua) == (None, [])
+
+
+def test_con_un_personaje_fuera_del_resumen_el_siguiente_es_el_primero_de_su_cuenta():
+    lua = con_ventana_adelantadas(
+        TRES_EN_WOW2.replace('nombre = "Pepe"', 'nombre = "Juan"')
+        + '\nWowAlertsAdelantadas.personajes = { ["Sanguino-Pepe"] = 2 }\n'
+    )
+    assert siguiente(lua) == ("Ana", ["Ana"])
+
+
+def test_sin_saber_la_cuenta_no_hay_siguiente():
+    lua = con_ventana_adelantadas(TRES_EN_WOW2.replace('nombre = "Pepe"', 'nombre = "Juan"'))
+    assert siguiente(lua) == (None, [])
+
+
+def textos_pintados(lua):
+    """Abre la ventana apuntando todo lo que se escribe en sus textos."""
+    lua.execute(
+        """
+        TEXTOS = {}
+        local crear = CreateFrame
+        CreateFrame = function(...)
+            local f = crear(...)
+            rawset(f, "CreateFontString", function()
+                local t = {}
+                return setmetatable(t, { __index = function(_, metodo)
+                    if metodo == "SetText" then
+                        return function(_, texto) TEXTOS[#TEXTOS + 1] = texto end
+                    end
+                    return function() end
+                end })
+            end)
+            return f
+        end
+        """
+    )
+    lua.globals().WowAlertsVentanaAdelantadas.Mostrar()
+    return a_python(lua.globals().TEXTOS)
+
+
+def test_el_actual_va_marcado_y_abajo_dice_el_siguiente():
+    textos = textos_pintados(con_ventana_adelantadas(TRES_EN_WOW2))
+
+    assert any("> Pepe - 2" in t for t in textos)
+    assert any("Siguiente: Mbarval" in t for t in textos)
