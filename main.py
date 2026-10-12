@@ -23,6 +23,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from wowalerts.adelantadas import escribir as escribir_adelantadas
 from wowalerts.blizzard import BlizzardAuthError, BlizzardClient, BlizzardError
 from wowalerts.config import ConfigError, load_config
 from wowalerts.disparo import (
@@ -52,6 +53,7 @@ from wowalerts.notifier import (
     DiscordNotifier,
     format_gold,
     realm_names_for,
+    resumen_adelantadas,
 )
 from wowalerts.personajes import (
     leer_rosters,
@@ -164,6 +166,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Carpeta con el resumen de lo que has vendido, un fichero por "
         "maquina (por defecto: mis_ventas). Lo genera sync_subastas.py leyendo "
         "el addon Journalator, y es lo que alimenta el panel de ventas.",
+    )
+    parser.add_argument(
+        "--adelantadas",
+        default="",
+        help="Donde escribir el resumen de lo adelantado para la ventana del "
+        "addon (con --undercut). Vacio = no se escribe.",
     )
     parser.add_argument(
         "-v",
@@ -414,6 +422,7 @@ def run_mis_subastas(
     dry_run: bool,
     ignore_state: bool,
     callado: bool = False,
+    adelantadas_path: str | None = None,
 ) -> int:
     """Una pasada de vigilancia sobre tus propias subastas.
 
@@ -552,6 +561,9 @@ def run_mis_subastas(
     todos: list = []
     ventas: list = []
     snapshot_at = None
+    # La hora de cada volcado mirado. El resumen para el addon lleva el mas
+    # viejo: lo que repongas despues puede no estar en este resumen todavia.
+    volcados_vistos: list[datetime] = []
     # Cuantas subastas conoce el addon de cada personaje y cuantas siguen vivas.
     # Un personaje con todas muertas es uno cuyos datos son de antes de que las
     # repostearas: contra ids muertos no se detecta nada, y en silencio.
@@ -569,6 +581,7 @@ def run_mis_subastas(
 
         if snapshot.taken_at and (snapshot_at is None or snapshot.taken_at > snapshot_at):
             snapshot_at = snapshot.taken_at
+        volcados_vistos.append(snapshot.taken_at or datetime.now(timezone.utc))
 
         vivos = {a.get("id") for a in snapshot.auctions}
         for mia in mias:
@@ -655,6 +668,17 @@ def run_mis_subastas(
         memoria_caducados.save()
 
     if hacer_undercut:
+        # El mismo resumen que el aviso de Discord, para la ventana del addon.
+        # Con algun reino mirado y aunque no haya nada nuevo: tambien hay que
+        # poder decir "nada adelantado". Sin ningun reino, mejor no decir nada.
+        if adelantadas_path and not dry_run and volcados_vistos:
+            escribir_adelantadas(
+                adelantadas_path,
+                resumen_adelantadas(todos, orden),
+                pasada=int(datetime.now(timezone.utc).timestamp()),
+                volcado=int(min(volcados_vistos).timestamp()),
+            )
+
         # El panel se reescribe siempre, tambien cuando no hay novedades: su
         # gracia es decir como estas, y "todo primero" es una respuesta tan util
         # como una lista de cosas que atender.
@@ -1099,6 +1123,7 @@ def run(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             ignore_state=args.ignore_state,
             callado=callado,
+            adelantadas_path=args.adelantadas or None,
         )
 
     if args.realms:

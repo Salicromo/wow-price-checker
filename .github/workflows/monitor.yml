@@ -189,6 +189,7 @@ jobs:
           BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
         run: >-
           python main.py --undercut --ventas
+          --adelantadas publicar/adelantadas.json
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.forzar_undercut && '--ignore-state' || '' }}
 

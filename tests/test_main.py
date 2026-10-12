@@ -1535,3 +1535,83 @@ def test_con_los_avisos_pausados_no_se_envia_nada_y_al_reanudar_si(entorno, capl
     assert ejecutar(entorno) == cli.EXIT_OK
 
     assert len(mensajes_discord(entorno["mock"])) == 1
+
+
+# -- El resumen de lo adelantado para la ventana del addon ---------------------
+
+LAST_MODIFIED = "Sun, 30 Aug 2026 11:31:16 GMT"
+VOLCADO_EPOCH = int(datetime(2026, 8, 30, 11, 31, 16, tzinfo=timezone.utc).timestamp())
+
+
+def _preparar_adelantadas(entorno, tmp_path, monkeypatch, ajenas, estado=200):
+    Path(entorno["config"]).write_text(
+        CONFIG_SIN_UNDERCUT.replace("    avisar_undercut: false\n", ""), encoding="utf-8"
+    )
+    monkeypatch.setenv("DISCORD_UNDERCUT_WEBHOOK_URL", UNDERCUT_WEBHOOK)
+    entorno["mock"].post(UNDERCUT_WEBHOOK, json={"id": "1"})
+    entorno["mock"].get(UNDERCUT_WEBHOOK, json={"id": "1"})
+    entorno["mock"].patch(UNDERCUT_WEBHOOK + "/messages/1", status_code=200)
+
+    subastas_dir = tmp_path / "subastas"
+    subastas_dir.mkdir()
+    mia = _mia(900, 5000, "Grebas de las profundidades", 80_000, (12843,), 311)
+    mia["account"] = 2
+    (subastas_dir / "pc.json").write_text(json.dumps({"auctions": [mia]}), encoding="utf-8")
+    (tmp_path / "roster").mkdir()
+
+    entorno["mock"].get(
+        f"{BASE}/realm/dun-modr",
+        json={"connected_realm": {"href": f"{BASE}/connected-realm/1305"}},
+    )
+    entorno["mock"].get(
+        f"{BASE}/connected-realm/1305/auctions",
+        status_code=estado,
+        json={"auctions": [_ajena(900, 5000, 80_000, (12843,)), *ajenas]},
+        headers={"Last-Modified": LAST_MODIFIED},
+    )
+    salida = tmp_path / "publicar" / "adelantadas.json"
+    argumentos = (
+        "--undercut",
+        "--mis-subastas", str(subastas_dir),
+        "--personajes", str(tmp_path / "roster"),
+        "--adelantadas", str(salida),
+    )
+    return salida, argumentos
+
+
+def test_la_pasada_publica_lo_adelantado(entorno, tmp_path, monkeypatch):
+    salida, argumentos = _preparar_adelantadas(
+        entorno, tmp_path, monkeypatch, [_ajena(910, 5000, 70_000, (12843,))]
+    )
+    assert ejecutar(entorno, *argumentos) == cli.EXIT_OK
+
+    datos = json.loads(salida.read_text(encoding="utf-8"))
+    assert datos["total"] == 1
+    assert datos["volcado"] == VOLCADO_EPOCH
+    assert datos["pasada"] >= VOLCADO_EPOCH
+    assert datos["cuentas"] == [
+        {"cuenta": 2, "personajes": [{"nombre": "Ana", "reino": "Dun Modr", "n": 1, "caras": 0}]}
+    ]
+
+
+def test_sin_nada_adelantado_se_publica_vacio(entorno, tmp_path, monkeypatch):
+    salida, argumentos = _preparar_adelantadas(entorno, tmp_path, monkeypatch, [])
+    assert ejecutar(entorno, *argumentos) == cli.EXIT_OK
+
+    datos = json.loads(salida.read_text(encoding="utf-8"))
+    assert (datos["total"], datos["cuentas"]) == (0, [])
+
+
+def test_con_dry_run_no_se_publica(entorno, tmp_path, monkeypatch):
+    salida, argumentos = _preparar_adelantadas(
+        entorno, tmp_path, monkeypatch, [_ajena(910, 5000, 70_000, (12843,))]
+    )
+    ejecutar(entorno, *argumentos, "--dry-run")
+    assert not salida.exists()
+
+
+def test_si_no_se_pudo_mirar_ningun_reino_no_se_publica(entorno, tmp_path, monkeypatch):
+    """Publicar "nada adelantado" con Blizzard caido seria mentir."""
+    salida, argumentos = _preparar_adelantadas(entorno, tmp_path, monkeypatch, [], estado=503)
+    ejecutar(entorno, *argumentos)
+    assert not salida.exists()
