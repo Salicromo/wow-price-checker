@@ -254,6 +254,18 @@ def traer_adelantadas(raiz: Path, wow_root: Path) -> bool:
     return True
 
 
+def _traer_adelantadas_sin_romper(raiz: Path, wow_root: Path) -> None:
+    """traer_adelantadas, pero sin que nada suyo pare la sincronizacion.
+
+    Lo adelantado es un extra: un fallo que nadie previo no puede dejar sin
+    subir las subastas ni matar el bucle de --vigilar.
+    """
+    try:
+        traer_adelantadas(raiz, wow_root)
+    except Exception:
+        log.exception("Ha fallado traer lo adelantado; sigo con lo demas.")
+
+
 def _preparar_rama(raiz: Path, copia: Path, push: bool) -> int:
     """Deja `copia` con lo que hay publicado ahora mismo en la rama de datos.
 
@@ -564,7 +576,7 @@ def _sincronizar(args: argparse.Namespace) -> int:
     # Antes que nada: no depende de que haya subastas que subir, y es lo que
     # vas a mirar al entrar con el siguiente personaje.
     if not args.dry_run:
-        traer_adelantadas(Path(__file__).resolve().parent, wow_root)
+        _traer_adelantadas_sin_romper(Path(__file__).resolve().parent, wow_root)
 
     # El banco de hermandad, de la cuenta de WoW que lo vio a las demas. Va lo
     # primero: no depende de que haya subastas que subir.
@@ -756,7 +768,7 @@ def vigilar(args: argparse.Namespace) -> int:
         wow_root,
     )
     raiz = Path(__file__).resolve().parent
-    traer_adelantadas(raiz, wow_root)
+    _traer_adelantadas_sin_romper(raiz, wow_root)
     traido_en = time.monotonic()
     anterior = firma_de_los_volcados(wow_root)
     try:
@@ -764,7 +776,7 @@ def vigilar(args: argparse.Namespace) -> int:
             time.sleep(args.vigilar_cada)
             if time.monotonic() - traido_en >= SEGUNDOS_ENTRE_ADELANTADAS:
                 traido_en = time.monotonic()
-                traer_adelantadas(raiz, wow_root)
+                _traer_adelantadas_sin_romper(raiz, wow_root)
             actual = firma_de_los_volcados(wow_root)
             if actual == anterior:
                 continue

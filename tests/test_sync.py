@@ -634,3 +634,28 @@ def test_vigilar_trae_lo_adelantado_al_arrancar_y_cada_cinco_minutos(tmp_path, m
     assert sync.vigilar(args) == sync.EXIT_OK
     # Una al arrancar y otra al llegar a los 300 s; a los 420 todavia no toca.
     assert len(traidas) == 2
+
+
+def test_un_error_al_traer_lo_adelantado_no_para_la_vigilancia(tmp_path, monkeypatch):
+    """Lo adelantado es un extra: nada suyo puede dejar sin subir las subastas."""
+
+    def revienta(raiz, wow_root):
+        raise RuntimeError("algo que nadie esperaba")
+
+    monkeypatch.setattr(sync, "traer_adelantadas", revienta)
+    monkeypatch.setattr(sync, "firma_de_los_volcados", lambda wow_root: ())
+    reloj = {"t": 0}
+    vueltas = {"n": 0}
+
+    def dormir(segundos):
+        vueltas["n"] += 1
+        if vueltas["n"] > 7:
+            raise KeyboardInterrupt
+        reloj["t"] += 60
+
+    monkeypatch.setattr(sync.time, "sleep", dormir)
+    monkeypatch.setattr(sync.time, "monotonic", lambda: reloj["t"])
+    args = sync.build_parser().parse_args(["--vigilar", "--wow-root", str(tmp_path)])
+
+    assert sync.vigilar(args) == sync.EXIT_OK
+    assert vueltas["n"] == 8
