@@ -4,15 +4,25 @@ El vigilante lo escribe en cada pasada (`escribir`) y el workflow lo sube a la
 rama 'datos' del repositorio privado. sync_subastas.py lo trae y lo convierte
 en Adelantadas.lua (`a_lua`), porque el addon no tiene red y solo lee ficheros
 Lua al cargar la interfaz.
+
+En ese mismo fichero van los apuntes de lo repuesto en cada cuenta de WoW
+(`vistas_de`, `juntar_vistas`): WoW guarda los datos de los addons por cuenta,
+y sin esto lo repuesto con una no saldria tachado en la otra.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
+
+from .misubastas import MisSubastasError, leer_cadena_lua
 
 VERSION = 1
+
+VISTAS_RE = re.compile(r'\["adelantadasJSON"\]\s*=\s*"')
+CAMPOS_VISTA = ("en", "quedan", "pendientes")
 
 
 def escribir(
@@ -65,8 +75,51 @@ def _cadena_lua(texto: str) -> str:
     return '"' + escapado + '"'
 
 
-def a_lua(datos: Mapping[str, Any]) -> str:
-    """El contenido de Adelantadas.lua. ValueError si `datos` no tiene la forma."""
+def _es_entero(valor: Any) -> bool:
+    return isinstance(valor, int) and not isinstance(valor, bool)
+
+
+def vistas_de(texto: str) -> dict[str, dict[str, int]]:
+    """Los apuntes que guarda el addon de una cuenta: "Reino-Nombre" -> apunte.
+
+    Se salta lo que no tenga la forma: esto sale de un fichero que escribe WoW,
+    y un apunte raro no puede dejar sin los de los demas personajes.
+    """
+    match = VISTAS_RE.search(texto)
+    if not match:
+        return {}
+    try:
+        datos = json.loads(leer_cadena_lua(texto, match.end()))
+    except (MisSubastasError, json.JSONDecodeError):
+        return {}
+    if not isinstance(datos, dict):
+        return {}
+    return {
+        clave: {campo: apunte[campo] for campo in CAMPOS_VISTA}
+        for clave, apunte in datos.items()
+        if isinstance(apunte, dict) and all(_es_entero(apunte.get(c)) for c in CAMPOS_VISTA)
+    }
+
+
+def juntar_vistas(
+    de_cada_cuenta: Iterable[Mapping[str, Mapping[str, int]]],
+) -> dict[str, dict[str, int]]:
+    """Los apuntes de todas las cuentas; de cada personaje, el mas reciente."""
+    juntas: dict[str, dict[str, int]] = {}
+    for vistas in de_cada_cuenta:
+        for clave, apunte in vistas.items():
+            if clave not in juntas or apunte["en"] > juntas[clave]["en"]:
+                juntas[clave] = dict(apunte)
+    return juntas
+
+
+def a_lua(
+    datos: Mapping[str, Any], vistas: Mapping[str, Mapping[str, int]] | None = None
+) -> str:
+    """El contenido de Adelantadas.lua. ValueError si `datos` no tiene la forma.
+
+    `vistas` son los apuntes de todas las cuentas (ver `juntar_vistas`).
+    """
     if not isinstance(datos, Mapping):
         raise ValueError("el resumen deberia ser un objeto JSON")
     cuentas = datos.get("cuentas")
@@ -100,5 +153,12 @@ def a_lua(datos: Mapping[str, Any]) -> str:
                 f"caras = {_entero(p.get('caras'), 'caras')} }},"
             )
         lineas.append("        } },")
+    lineas += ["    },", "    vistas = {"]
+    for clave, apunte in sorted((vistas or {}).items()):
+        lineas.append(
+            f"        [{_cadena_lua(clave)}] = {{ "
+            f"en = {apunte['en']}, quedan = {apunte['quedan']}, "
+            f"pendientes = {apunte['pendientes']} }},"
+        )
     lineas += ["    },", "}"]
     return "\n".join(lineas) + "\n"

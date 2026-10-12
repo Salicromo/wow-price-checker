@@ -2041,6 +2041,10 @@ local function apuntarAdelantadas()
     resumen.en = time()
     WowAlertsExportDB.adelantadasVistas = WowAlertsExportDB.adelantadasVistas or {}
     WowAlertsExportDB.adelantadasVistas[clavePersonaje()] = resumen
+    -- WoW guarda esto por cuenta. En JSON lo lee sync_subastas.py de cada una y
+    -- se lo pasa a las demas dentro de Adelantadas.lua, para que lo repuesto
+    -- con una cuenta salga tachado tambien en la otra.
+    WowAlertsExportDB.adelantadasJSON = WowAlertsJSON(WowAlertsExportDB.adelantadasVistas)
     -- Con pcall por lo mismo que la otra ventana: un error suyo no debe dejar
     -- el boton del reposteo sin actualizar.
     if WowAlertsVentanaAdelantadas and WowAlertsVentanaAdelantadas.Refrescar then

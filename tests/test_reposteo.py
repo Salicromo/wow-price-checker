@@ -2055,7 +2055,7 @@ def test_la_version_del_toc_es_la_del_addon():
 
     en_toc = re.search(r"^## Version: (.+)$", toc, re.MULTILINE).group(1).strip()
     en_lua = re.search(r'^local ADDON_VERSION = "(.+)"$', lua, re.MULTILINE).group(1)
-    assert en_toc == en_lua == "1.39"
+    assert en_toc == en_lua == "1.40"
 
 
 # -- Lo que el juego confirma y lo que se repone por fuera --------------------
@@ -4218,3 +4218,39 @@ def test_la_ventana_de_adelantadas_va_por_encima_de_la_casa():
 
     assert lua.globals().CAPA == "HIGH"
     assert lua.globals().NIVEL >= 100
+
+
+def test_los_apuntes_se_dejan_en_json_para_la_otra_cuenta():
+    """WoW guarda por cuenta: la sincronizacion lee este JSON de cada una y se
+    lo pasa a las demas en Adelantadas.lua."""
+    lua = runtime()
+    adelantadas(lua, 10, 12)
+    refrescar(lua)
+
+    exportado = json.loads(lua.globals().WowAlertsExportDB.adelantadasJSON)
+    assert exportado == {"Sanguino-Pepe": {"en": 1756500000, "quedan": 2, "pendientes": 0}}
+
+
+def resumen_con_vistas(vistas_lua):
+    return RESUMEN_ADELANTADAS + f"\nWowAlertsAdelantadas.vistas = {{ {vistas_lua} }}\n"
+
+
+def test_lo_repuesto_con_la_otra_cuenta_tambien_se_tacha():
+    lua = con_ventana_adelantadas(
+        resumen_con_vistas('["Kazzak-Ana"] = { en = AHORA - 60, quedan = 0, pendientes = 0 }')
+    )
+    datos = lineas_adelantadas(lua)
+
+    assert filas_de(datos)["Ana"]["hecho"] is True
+    assert datos["total"] == 3
+
+
+def test_entre_el_apunte_propio_y_el_de_la_otra_cuenta_gana_el_ultimo():
+    lua = con_ventana_adelantadas(
+        resumen_con_vistas('["Sanguino-Pepe"] = { en = AHORA - 60, quedan = 0, pendientes = 0 }')
+    )
+    apuntar(lua, "Sanguino-Pepe", en=1756500000 - 120, quedan=1)
+    assert filas_de(lineas_adelantadas(lua))["Pepe"]["hecho"] is True
+
+    apuntar(lua, "Sanguino-Pepe", en=1756500000 - 30, quedan=1)
+    assert filas_de(lineas_adelantadas(lua))["Pepe"]["n"] == 1

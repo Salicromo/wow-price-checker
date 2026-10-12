@@ -31,7 +31,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from wowalerts.adelantadas import a_lua as adelantadas_a_lua
+from wowalerts.adelantadas import a_lua as adelantadas_a_lua, juntar_vistas, vistas_de
 from wowalerts.banco import compartir_banco
 from wowalerts.journalator import (
     apuntes_de_wow,
@@ -202,8 +202,45 @@ FICHERO_ADELANTADAS = "adelantadas.json"
 SEGUNDOS_ENTRE_ADELANTADAS = 300
 
 
+def _resumen_publicado(raiz: Path) -> str | None:
+    """El ultimo adelantadas.json publicado, o la copia de la vez anterior.
+
+    La copia es para poder rehacer Adelantadas.lua con lo repuesto en la otra
+    cuenta aunque no haya red: eso no depende del resumen nuevo.
+    """
+    guardado = raiz / ".state" / FICHERO_ADELANTADAS
+    url = git("remote", "get-url", REMOTO_DATOS, cwd=raiz).stdout.strip()
+    if url:
+        copia = raiz / ".state" / "rama-adelantadas"
+        if not (copia / "HEAD").is_file():
+            copia.mkdir(parents=True, exist_ok=True)
+            git("init", "-q", "--bare", cwd=copia)
+        traer = git("fetch", "-q", "--depth=1", url, RAMA_ADELANTADAS, cwd=copia)
+        if traer.returncode == 0:
+            leido = git("show", f"FETCH_HEAD:{FICHERO_ADELANTADAS}", cwd=copia)
+            if leido.returncode == 0:
+                try:
+                    guardado.write_text(leido.stdout, encoding="utf-8", newline="\n")
+                except OSError as fallo:
+                    log.warning("No he podido guardar la copia del resumen: %s", fallo)
+                return leido.stdout
+            log.info("Todavia no hay %s publicado.", FICHERO_ADELANTADAS)
+        else:
+            log.warning("No he podido traer lo adelantado: %s", traer.stderr.strip())
+    else:
+        log.info("Sin el remoto %r no puedo traer lo adelantado.", REMOTO_DATOS)
+
+    if guardado.is_file():
+        log.info("Uso la copia del ultimo resumen de lo adelantado.")
+        return guardado.read_text(encoding="utf-8")
+    return None
+
+
 def traer_adelantadas(raiz: Path, wow_root: Path) -> bool:
     """Deja en el addon el ultimo resumen de lo adelantado. True si ha escrito.
+
+    Junto al resumen van los apuntes de lo repuesto en todas tus cuentas de WoW,
+    para que lo hecho con una salga tachado en la otra.
 
     Cualquier fallo deja el Adelantadas.lua anterior y solo se apunta en el log:
     esto no puede tumbar la sincronizacion de las subastas.
@@ -213,30 +250,17 @@ def traer_adelantadas(raiz: Path, wow_root: Path) -> bool:
         log.info("El addon no esta en %s: no traigo lo adelantado.", wow_root)
         return False
 
-    url = git("remote", "get-url", REMOTO_DATOS, cwd=raiz).stdout.strip()
-    if not url:
-        log.info("Sin el remoto %r no puedo traer lo adelantado.", REMOTO_DATOS)
+    publicado = _resumen_publicado(raiz)
+    if publicado is None:
         return False
-
-    copia = raiz / ".state" / "rama-adelantadas"
-    if not (copia / "HEAD").is_file():
-        copia.mkdir(parents=True, exist_ok=True)
-        if git("init", "-q", "--bare", cwd=copia).returncode != 0:
-            log.warning("No he podido preparar %s.", copia)
-            return False
-
-    traer = git("fetch", "-q", "--depth=1", url, RAMA_ADELANTADAS, cwd=copia)
-    if traer.returncode != 0:
-        log.warning("No he podido traer lo adelantado: %s", traer.stderr.strip())
-        return False
-    leido = git("show", f"FETCH_HEAD:{FICHERO_ADELANTADAS}", cwd=copia)
-    if leido.returncode != 0:
-        log.info("Todavia no hay %s publicado.", FICHERO_ADELANTADAS)
-        return False
+    vistas = juntar_vistas(
+        vistas_de(f.read_text(encoding="utf-8", errors="replace"))
+        for f in encontrar_savedvariables(wow_root)
+    )
 
     try:
         # json.JSONDecodeError es un ValueError.
-        texto = adelantadas_a_lua(json.loads(leido.stdout))
+        texto = adelantadas_a_lua(json.loads(publicado), vistas)
     except ValueError as fallo:
         log.warning("El resumen de lo adelantado no se entiende: %s", fallo)
         return False

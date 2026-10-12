@@ -20,12 +20,24 @@ local COLOR_ACTUAL = "|cffffd100"
 local marco, titulo
 local columnas = {}
 
--- El apunte de Reposteo.lua de ese personaje, si es de despues del volcado del
--- resumen. Uno anterior ya esta reflejado en el resumen, o es mas viejo que el.
+local function valido(apunte)
+    return type(apunte) == "table" and type(apunte.en) == "number"
+end
+
+-- El apunte de ese personaje, si es de despues del volcado del resumen: uno
+-- anterior ya esta reflejado en el resumen, o es mas viejo que el. Puede venir
+-- de esta cuenta (Reposteo.lua, en WowAlertsExportDB) o de la otra (lo trae
+-- sync_subastas.py en WowAlertsAdelantadas.vistas); gana el mas reciente.
 local function apunteDe(reino, nombre, volcado)
-    local vistas = WowAlertsExportDB and WowAlertsExportDB.adelantadasVistas
-    local apunte = vistas and vistas[reino .. "-" .. nombre]
-    if type(apunte) ~= "table" or type(apunte.en) ~= "number" or apunte.en <= volcado then
+    local clave = reino .. "-" .. nombre
+    local propias = WowAlertsExportDB and WowAlertsExportDB.adelantadasVistas
+    local deFuera = WowAlertsAdelantadas and WowAlertsAdelantadas.vistas
+    local apunte = propias and propias[clave]
+    local otro = type(deFuera) == "table" and deFuera[clave] or nil
+    if not valido(apunte) or (valido(otro) and otro.en > apunte.en) then
+        apunte = otro
+    end
+    if not valido(apunte) or apunte.en <= volcado then
         return nil
     end
     return apunte

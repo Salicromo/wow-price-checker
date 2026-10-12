@@ -659,3 +659,45 @@ def test_un_error_al_traer_lo_adelantado_no_para_la_vigilancia(tmp_path, monkeyp
 
     assert sync.vigilar(args) == sync.EXIT_OK
     assert vueltas["n"] == 8
+
+
+def con_apuntes(wow, cuenta, vistas):
+    """Los datos guardados del addon de una cuenta, con sus apuntes."""
+    fichero = wow / "WTF" / "Account" / cuenta / "SavedVariables" / "WowAlertsExport.lua"
+    fichero.parent.mkdir(parents=True, exist_ok=True)
+    cadena = json.dumps(vistas).replace("\\", "\\\\").replace('"', '\\"')
+    fichero.write_text(f'WowAlertsExportDB = {{\n["adelantadasJSON"] = "{cadena}",\n}}\n', encoding="utf-8")
+
+
+def test_el_lua_lleva_lo_repuesto_en_todas_las_cuentas(tmp_path):
+    """Lo repuesto con una cuenta tiene que salir tachado en la otra."""
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(remoto_con_adelantadas(tmp_path, json.dumps(RESUMEN))))
+    wow = wow_con_addon(tmp_path)
+    con_apuntes(wow, "111#1", {"Zul'jin-Pepé": {"en": 1500, "quedan": 1, "pendientes": 0}})
+    con_apuntes(wow, "111#2", {
+        "Zul'jin-Pepé": {"en": 1600, "quedan": 0, "pendientes": 0},
+        "Kazzak-Ana": {"en": 1550, "quedan": 0, "pendientes": 0},
+    })
+
+    assert sync.traer_adelantadas(raiz, wow) is True
+
+    texto = fichero_lua(wow).read_text(encoding="utf-8")
+    assert "[\"Zul'jin-Pepé\"] = { en = 1600, quedan = 0, pendientes = 0 }" in texto
+    assert '["Kazzak-Ana"] = { en = 1550' in texto
+
+
+def test_sin_red_se_rehace_el_lua_con_la_copia_del_resumen(tmp_path):
+    """Lo repuesto con la otra cuenta no puede esperar a que vuelva la red."""
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(remoto_con_adelantadas(tmp_path, json.dumps(RESUMEN))))
+    wow = wow_con_addon(tmp_path)
+    sync.traer_adelantadas(raiz, wow)
+
+    git_en(raiz, "remote", "set-url", "privado", str(tmp_path / "no-existe.git"))
+    con_apuntes(wow, "111#2", {"Kazzak-Ana": {"en": 1700, "quedan": 0, "pendientes": 0}})
+
+    assert sync.traer_adelantadas(raiz, wow) is True
+    texto = fichero_lua(wow).read_text(encoding="utf-8")
+    assert "WowAlertsAdelantadas" in texto
+    assert '["Kazzak-Ana"] = { en = 1700' in texto
