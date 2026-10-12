@@ -16,6 +16,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import platform
@@ -27,6 +28,8 @@ from contextlib import contextmanager
 from datetime import datetime
 import sys
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from wowalerts.banco import compartir_banco
 from wowalerts.journalator import (
@@ -44,6 +47,7 @@ from wowalerts.misubastas import (
     volcado_atrasado,
     leer_de_wow,
 )
+from wowalerts.notifier import DiscordError, DiscordNotifier
 from wowalerts.personajes import escribir_personajes, leer_personajes
 
 log = logging.getLogger("sync")
@@ -255,9 +259,117 @@ def _preparar_rama(raiz: Path, copia: Path, push: bool) -> int:
     return EXIT_OK
 
 
+def _fichero_pendiente(raiz: Path | None) -> Path:
+    return (raiz or Path(__file__).resolve().parent) / ".state" / "subida_pendiente.json"
+
+
+def hay_subida_pendiente(raiz: Path | None = None) -> bool:
+    """Si queda algo escrito en local que no ha llegado a GitHub."""
+    return _fichero_pendiente(raiz).exists()
+
+
 def subir(ficheros: list[str], push: bool, raiz: Path | None = None) -> int:
-    """Publica el volcado en la rama de datos, fuera del historial de main."""
+    """Publica el volcado, y lo que no se pudo publicar las veces anteriores.
+
+    El fichero local se escribe antes de subir, asi que tras un push fallido la
+    pasada siguiente ya no ve cambios. Sin apuntar lo pendiente, GitHub se
+    quedaria con el volcado viejo hasta que tocaras alguna subasta: asi
+    estuvieron los avisos un dia entero con la cuenta de GitHub equivocada.
+    """
     raiz = raiz or Path(__file__).resolve().parent
+    pendiente = _fichero_pendiente(raiz)
+    if pendiente.exists():
+        anteriores = json.loads(pendiente.read_text(encoding="utf-8"))
+        # Uno renombrado o borrado desde entonces ya no hay que subirlo.
+        ficheros = sorted(
+            set(ficheros) | {f for f in anteriores if (raiz / f).exists()}
+        )
+
+    resultado = _subir(ficheros, push, raiz)
+    if push and resultado == EXIT_OK:
+        pendiente.unlink(missing_ok=True)
+    else:
+        pendiente.parent.mkdir(parents=True, exist_ok=True)
+        pendiente.write_text(json.dumps(ficheros), encoding="utf-8")
+    return resultado
+
+
+class _Errores(logging.Handler):
+    """Junta los errores de una subida para poder contar el motivo."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.ERROR)
+        self.mensajes: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.mensajes.append(record.getMessage())
+
+
+def _notificador(raiz: Path) -> DiscordNotifier | None:
+    # La tarea programada no arranca en la carpeta del proyecto: el .env se
+    # busca junto al script, no en el directorio actual.
+    load_dotenv(raiz / ".env")
+    url = os.getenv("DISCORD_UNDERCUT_WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL")
+    return DiscordNotifier(url) if url else None
+
+
+def subir_avisando(
+    ficheros: list[str],
+    push: bool,
+    raiz: Path | None = None,
+    notificador=None,
+    maquina: str = "",
+) -> int:
+    """Sube, y si no puede, lo dice por Discord una vez por cada racha de fallos.
+
+    Una subida rota no se nota en ningun sitio: los avisos siguen llegando, solo
+    que calculados con datos viejos. Asi estuvo un dia entero sin que nada lo
+    dijera fuera de .state/sync.log.
+    """
+    raiz = raiz or Path(__file__).resolve().parent
+    errores = _Errores()
+    log.addHandler(errores)
+    try:
+        resultado = subir(ficheros, push, raiz)
+    finally:
+        log.removeHandler(errores)
+
+    avisado = raiz / ".state" / "fallo_de_subida_avisado"
+    if resultado == EXIT_OK:
+        if push:
+            avisado.unlink(missing_ok=True)
+        return resultado
+    if avisado.exists():
+        return resultado
+
+    notificador = notificador or _notificador(raiz)
+    if notificador is None:
+        log.warning("No hay webhook de Discord en .env: el fallo solo queda en el log.")
+        return resultado
+    motivo = "\n".join(errores.mensajes)[:1500] or "sin detalle"
+    donde = f" desde la maquina '{maquina}'" if maquina else ""
+    try:
+        notificador.send_warning(
+            "No puedo subir tus subastas a GitHub",
+            f"Falla la subida{donde}, asi que los avisos de undercuts y ventas "
+            "trabajan con datos viejos.\n\n"
+            f"```\n{motivo}\n```\n"
+            "Si dice *Repository not found*, la cuenta activa de `gh` no es la "
+            "duena del repositorio privado: mira `gh auth status` y cambiala "
+            "con `gh auth switch`.\n\n"
+            "En cuanto se arregle se sube solo, la proxima vez que WoW guarde.",
+        )
+    except DiscordError as exc:
+        # Sin red fallan las dos cosas a la vez. Sin marcarlo como avisado: se
+        # vuelve a intentar con el siguiente guardado.
+        log.warning("Tampoco he podido avisar por Discord: %s", exc)
+        return resultado
+    avisado.write_text(datetime.now().isoformat(timespec="seconds"), encoding="utf-8")
+    return resultado
+
+
+def _subir(ficheros: list[str], push: bool, raiz: Path) -> int:
+    """Publica el volcado en la rama de datos, fuera del historial de main."""
     copia = raiz / ".state" / "rama-datos"
 
     if _preparar_rama(raiz, copia, push) != EXIT_OK:
@@ -466,11 +578,13 @@ def _sincronizar(args: argparse.Namespace) -> int:
         cambiados.append(fichero_ventas)
 
     if not cambiados:
-        log.info("Sin cambios respecto a lo ya subido.")
-        return EXIT_OK
-
-    log.info("Actualizado: %s.", ", ".join(cambiados))
-    return subir(cambiados, push=not args.no_push)
+        if not hay_subida_pendiente():
+            log.info("Sin cambios respecto a lo ya subido.")
+            return EXIT_OK
+        log.info("Sin cambios, pero queda por subir lo de una pasada anterior.")
+    else:
+        log.info("Actualizado: %s.", ", ".join(cambiados))
+    return subir_avisando(cambiados, push=not args.no_push, maquina=maquina)
 
 
 def _por_que_no_hay_ventas(wow_root: Path) -> None:
@@ -525,7 +639,7 @@ def _solo_ventas(args: argparse.Namespace, ventas) -> int:
         return EXIT_OK
 
     log.info("Actualizado: %s.", fichero)
-    return subir([fichero], push=not args.no_push)
+    return subir_avisando([fichero], push=not args.no_push, maquina=maquina)
 
 
 def firma_de_los_volcados(wow_root: Path) -> tuple:

@@ -438,3 +438,86 @@ def test_sin_el_remoto_privado_no_sube_al_publico(tmp_path):
 
     assert sync.subir([relativo], push=True, raiz=raiz) == sync.EXIT_ERROR
     assert git_en(bare, "branch", "--list", sync.RAMA_DATOS).stdout.strip() == ""
+
+
+def test_lo_que_no_se_pudo_subir_se_sube_en_la_pasada_siguiente(tmp_path):
+    """El fichero local ya queda escrito aunque el push falle. Si la pasada
+    siguiente solo mirara si ha cambiado, diria "sin cambios" y GitHub se
+    quedaria con el volcado viejo hasta que tocaras alguna subasta."""
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(tmp_path / "no-existe.git"))
+    relativo = escribir_volcado(raiz, "pc", "del pc")
+    assert sync.subir([relativo], push=True, raiz=raiz) == sync.EXIT_ERROR
+    assert sync.hay_subida_pendiente(raiz)
+
+    bare = remoto_vacio(tmp_path)
+    git_en(raiz, "remote", "set-url", "privado", str(bare))
+    assert sync.subir([], push=True, raiz=raiz) == sync.EXIT_OK
+
+    assert git_en(bare, "show", f"{sync.RAMA_DATOS}:{relativo}").stdout == "del pc"
+    assert not sync.hay_subida_pendiente(raiz)
+
+
+def test_sin_push_queda_pendiente(tmp_path):
+    """Con --no-push el volcado tampoco ha llegado a GitHub."""
+    raiz = repo_de_trabajo(tmp_path)
+    relativo = escribir_volcado(raiz, "pc", "algo")
+
+    sync.subir([relativo], push=False, raiz=raiz)
+
+    assert sync.hay_subida_pendiente(raiz)
+
+
+class DiscordDePega:
+    def __init__(self, falla=False):
+        self.avisos = []
+        self.falla = falla
+
+    def send_warning(self, titulo, texto):
+        if self.falla:
+            raise sync.DiscordError("Discord caido")
+        self.avisos.append((titulo, texto))
+
+
+def test_si_no_puede_subir_avisa_por_discord_una_sola_vez(tmp_path):
+    """Sin aviso, la subida estuvo rota un dia entero y solo lo decia el log.
+    Pero uno por fallo, no uno por cada vez que WoW guarda."""
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(tmp_path / "no-existe.git"))
+    relativo = escribir_volcado(raiz, "pc", "algo")
+    discord = DiscordDePega()
+
+    assert sync.subir_avisando([relativo], True, raiz, discord) == sync.EXIT_ERROR
+    assert sync.subir_avisando([], True, raiz, discord) == sync.EXIT_ERROR
+
+    assert len(discord.avisos) == 1
+    # El motivo va en el aviso: es lo que dice que hay que arreglar.
+    assert "No he podido consultar la rama" in discord.avisos[0][1]
+
+
+def test_tras_volver_a_subir_el_siguiente_fallo_se_avisa_otra_vez(tmp_path):
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(tmp_path / "no-existe.git"))
+    relativo = escribir_volcado(raiz, "pc", "algo")
+    discord = DiscordDePega()
+    sync.subir_avisando([relativo], True, raiz, discord)
+
+    git_en(raiz, "remote", "set-url", "privado", str(remoto_vacio(tmp_path)))
+    assert sync.subir_avisando([], True, raiz, discord) == sync.EXIT_OK
+    git_en(raiz, "remote", "set-url", "privado", str(tmp_path / "otro-que-no.git"))
+    sync.subir_avisando([relativo], True, raiz, discord)
+
+    assert len(discord.avisos) == 2
+
+
+def test_si_discord_tampoco_responde_lo_intenta_la_vez_siguiente(tmp_path):
+    """Sin red fallan las dos cosas a la vez: el aviso no puede darse por dado."""
+    raiz = repo_de_trabajo(tmp_path)
+    git_en(raiz, "remote", "add", "privado", str(tmp_path / "no-existe.git"))
+    relativo = escribir_volcado(raiz, "pc", "algo")
+
+    sync.subir_avisando([relativo], True, raiz, DiscordDePega(falla=True))
+    discord = DiscordDePega()
+    sync.subir_avisando([], True, raiz, discord)
+
+    assert len(discord.avisos) == 1
