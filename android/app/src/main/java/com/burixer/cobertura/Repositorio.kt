@@ -127,7 +127,7 @@ object Repositorio {
         val repo = repoPrivado(context)
 
         runCatching {
-            val subastas = JSONArray()
+            val todas = mutableListOf<JSONObject>()
             var exportado = 0L
             for (nombre in listar(repo, "mis_subastas", token, RAMA_SUBASTAS)) {
                 val fichero =
@@ -136,9 +136,10 @@ object Repositorio {
                 for (i in 0 until array.length()) {
                     val subasta = array.getJSONObject(i)
                     exportado = maxOf(exportado, subasta.optLong("exportedAt", 0L))
-                    subastas.put(subasta)
+                    todas.add(subasta)
                 }
             }
+            val subastas = JSONArray(Parser.soloLoUltimo(todas))
 
             val personajes = JSONArray()
             for (nombre in listar(repo, "mis_personajes", token, RAMA_SUBASTAS)) {

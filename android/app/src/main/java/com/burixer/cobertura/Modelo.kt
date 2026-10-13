@@ -118,6 +118,24 @@ object Parser {
         return Catalogo(orden, objetos)
     }
 
+    /**
+     * De las subastas de todas tus maquinas, las de la foto mas reciente de
+     * cada personaje.
+     *
+     * Cada maquina publica lo que vio la ultima vez que entraste en ella, y un
+     * fichero que se queda atras sigue afirmando lo mismo semanas despues. El
+     * 2026-10-13 el de la Steam Deck, del 7 de septiembre, daba un yelmo como
+     * puesto en Azuregoldu, y el del PC de ese mismo dia ya no lo tenia.
+     *
+     * Sin `exportedAt` (volcados de antes de que existiera) todo vale igual.
+     */
+    fun soloLoUltimo(subastas: List<JSONObject>): List<JSONObject> {
+        fun clave(s: JSONObject) = s.optString("character") to s.optString("realm")
+        val ultima = subastas.groupBy(::clave)
+            .mapValues { (_, suyas) -> suyas.maxOf { it.optLong("exportedAt", 0L) } }
+        return subastas.filter { it.optLong("exportedAt", 0L) == ultima[clave(it)] }
+    }
+
     fun datos(texto: String): Datos {
         val raiz = JSONObject(texto)
 
