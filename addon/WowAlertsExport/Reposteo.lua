@@ -435,7 +435,9 @@ local function apuntarPrecios()
     end
 end
 
-local function prepararBusqueda()
+-- Con `forzar` se mira tambien lo visto hace poco sin nadie delante (ver
+-- R.Reescanear).
+local function prepararBusqueda(forzar)
     reiniciarBusqueda()
     local objetos = vigilados().objetos
     local activas = {}
@@ -580,7 +582,7 @@ local function prepararBusqueda()
     local quedan = {}
     for _, clave in ipairs(ordenGrupos) do
         local grupo = grupos[clave]
-        local reciente = #grupo.devueltas == 0
+        local reciente = not forzar and #grupo.devueltas == 0
         for _, m in ipairs(grupo.mias) do
             if not vistaLimpiaReciente(m.auctionID) then
                 reciente = false
@@ -804,9 +806,9 @@ local function alResponder(itemKey)
     R.refrescarPanel()
 end
 
-local function empezarBusqueda()
+local function empezarBusqueda(forzar)
     buscadoEnEstaVisita = true
-    prepararBusqueda()
+    prepararBusqueda(forzar)
     lanzarSiguiente()
     if not buscando() then
         -- No habia nada que mirar: el aviso sale ya.
@@ -1367,10 +1369,35 @@ local function avisarFin()
     print("|cff33ccffReposteo:|r " .. mensaje)
 end
 
+-- Si la busqueda en marcha la ha pedido el boton de escanear (ver
+-- R.Reescanear), que avisa al acabar aunque haya algo que cancelar: lo has
+-- pedido para saber eso.
+local reescaneando = false
+
+local function avisarReescaneo()
+    local adelantadas = 0
+    for _, fila in ipairs(R.Subastas()) do
+        if fila.grupo == "adelantada" then
+            adelantadas = adelantadas + 1
+        end
+    end
+    local texto = "nadie te adelanta"
+    if adelantadas == 1 then
+        texto = "1 adelantada"
+    elseif adelantadas > 1 then
+        texto = ("%s adelantadas"):format(adelantadas)
+    end
+    print("|cff33ccffReposteo:|r Escaneo terminado: " .. texto)
+end
+
 -- Avisa en cuanto no queda nada que hacer en la casa, sin esperar a otra
 -- pulsacion: al llegar la ultima cancelacion, el ultimo posteo o el final de
 -- la busqueda.
 comprobarFin = function()
+    if reescaneando and not buscando() then
+        reescaneando = false
+        avisarReescaneo()
+    end
     if not casaAbierta() or not buscadoEnEstaVisita or buscando() or confirmacion
         or primeraPorCancelar() or paraPostear()
         or hayReciente("cancelando", "cancelandoEn") or hayReciente("posteando", "posteandoEn") then
@@ -1394,6 +1421,32 @@ local function buscarSolo()
     traza("busco solo: la lista esta entera y no hay nada que postear")
     empezarBusqueda()
     R.refrescarPanel()
+end
+
+-- Volver a buscar quien te adelanta sin cerrar la casa. La busqueda sola sale
+-- una vez por visita, y si llevas un rato dentro alguien ha podido ponerse
+-- delante desde entonces. Mira todo otra vez, tambien lo visto hace poco sin
+-- nadie delante: lo pides justo para saber si eso ha cambiado.
+--
+-- Solo despues de la primera busqueda, que decide si postear va antes, y nunca
+-- con una cancelacion o un posteo sin responder: la busqueda devolveria esas
+-- entradas a la fila y la tecla las pediria otra vez.
+function R.SePuedeReescanear()
+    return casaAbierta() and buscadoEnEstaVisita and not buscando() and not confirmacion
+        and not hayReciente("cancelando", "cancelandoEn")
+        and not hayReciente("posteando", "posteandoEn")
+end
+
+-- Devuelve si ha empezado a buscar.
+function R.Reescanear()
+    if not R.SePuedeReescanear() then
+        return false
+    end
+    traza("vuelvo a escanear a peticion")
+    reescaneando = true
+    empezarBusqueda(true)
+    R.refrescarPanel()
+    return true
 end
 
 -- Hace UNA accion y devuelve cual ("buscar", "cancelar", "recoger", "postear",
@@ -1691,7 +1744,7 @@ function R.Estado()
         end
         if sinConfirmar() or devueltaEnBolsa() or hayAtascada() then
             -- Hay algo cuyo precio no se ha podido repasar en esta visita.
-            return "Cierra y abre la casa para repasar precios"
+            return "Pulsa Escanear para repasar precios"
         end
         if contar("devuelta") > 0 then
             return "Recoge lo devuelto en el buzon"
@@ -2213,6 +2266,7 @@ frame:SetScript("OnEvent", function(_, evento, arg1, arg2)
         listaRepetida = false
         buscadoEnEstaVisita = false
         pulsadaEnVisita = false
+        reescaneando = false
         reposteadas = {}
         repasadas = {}
         confirmadas = {}
@@ -2244,6 +2298,7 @@ frame:SetScript("OnEvent", function(_, evento, arg1, arg2)
         -- busqueda siguiente decide, igual que en R.Siguiente (I-2).
         confirmacion = nil
         faltaPedirLista = false
+        reescaneando = false
         reiniciarBusqueda()
         if not buzonAbierto() then
             soltarTecla()

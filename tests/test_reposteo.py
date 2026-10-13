@@ -1014,6 +1014,109 @@ def test_lo_devuelto_se_busca_aunque_su_objeto_se_viera_hace_poco():
     assert pulsar(lua) == "postear"
 
 
+# -- Volver a escanear sin cerrar la casa ----------------------------------------
+
+
+def reescanear(lua):
+    return lua.globals().WowAlertsReposteo.Reescanear()
+
+
+def test_volver_a_escanear_mira_tambien_lo_visto_hace_poco():
+    """Llevas un rato en la casa y quieres saber si alguien se te ha puesto
+    delante desde que entraste: eso es justo lo que la marca de "visto hace
+    poco" se saltaria."""
+    lua = runtime(subastas=[mia(10, 100_000)])
+    en_la_casa(lua, [])
+    detectar(lua)
+    assert cola(lua) == []
+
+    en_la_casa(lua, [en_venta(999, 90_000)])
+    assert reescanear(lua)
+    responder_todo(lua)
+
+    assert lua.globals().BUSCADAS == 2
+    assert [(e["auctionID"], e["precio"]) for e in cola(lua)] == [(10, 90_000)]
+    assert llamadas(lua) == []   # buscar no cancela nada
+
+
+def test_volver_a_escanear_saca_de_la_cola_lo_que_ya_no_esta_adelantado():
+    lua = runtime()
+    adelantadas(lua, 10)
+    en_la_casa(lua, [])
+    reescanear(lua)
+    responder_todo(lua)
+    assert cola(lua) == []
+
+
+def test_volver_a_escanear_dice_en_el_chat_cuantas_te_adelantan():
+    lua = runtime(subastas=[mia(10, 100_000), mia(12, 100_000, ilvl=298)])
+    en_la_casa(lua, [])
+    detectar(lua)
+
+    antes = len(avisos(lua))
+
+    en_la_casa(lua, [en_venta(999, 90_000)])   # solo al 311; al 298 nadie
+    reescanear(lua)
+    assert avisos(lua)[antes:] == []   # nada hasta que acaba
+    responder_todo(lua)
+    assert avisos(lua)[antes:] == ["|cff33ccffReposteo:|r Escaneo terminado: 1 adelantada"]
+
+
+def test_volver_a_escanear_sin_rivales_lo_dice_tambien():
+    lua = runtime(subastas=[mia(10, 100_000)])
+    en_la_casa(lua, [])
+    detectar(lua)
+    reescanear(lua)
+    responder_todo(lua)
+    assert "|cff33ccffReposteo:|r Escaneo terminado: nadie te adelanta" in avisos(lua)
+
+
+def test_no_se_vuelve_a_escanear_antes_de_la_primera_busqueda():
+    """La primera la hace sola la casa al abrir, o la tecla si hay algo que
+    postear antes: el boton no se la salta."""
+    lua = runtime(subastas=[mia(10, 100_000)])
+    abrir_casa(lua)
+    assert not lua.globals().WowAlertsReposteo.SePuedeReescanear()
+    assert not reescanear(lua)
+    assert lua.globals().BUSCADAS == 0
+
+
+def test_no_se_vuelve_a_escanear_mientras_busca():
+    lua = runtime(subastas=[mia(10, 100_000), mia(12, 100_000, ilvl=298)])
+    abrir_casa(lua)
+    pulsar(lua)
+    assert not reescanear(lua)
+    assert lua.globals().BUSCADAS == 1
+
+
+def test_no_se_vuelve_a_escanear_con_una_cancelacion_sin_respuesta():
+    """La busqueda devolveria a la fila una cancelacion aun en camino, y la
+    siguiente pulsacion la pediria dos veces."""
+    lua = runtime()
+    adelantadas(lua, 10)
+    assert pulsar(lua) == "cancelar"
+    assert not reescanear(lua)
+
+
+def test_no_se_vuelve_a_escanear_con_la_casa_cerrada():
+    lua = runtime(subastas=[mia(10, 100_000)])
+    detectar(lua)
+    cerrar_casa(lua)
+    assert not reescanear(lua)
+
+
+def test_cerrar_la_casa_a_mitad_del_reescaneo_no_deja_el_aviso_colgado():
+    lua = runtime(subastas=[mia(10, 100_000), mia(12, 100_000, ilvl=298)])
+    en_la_casa(lua, [])
+    detectar(lua)
+    reescanear(lua)
+    cerrar_casa(lua)
+
+    lua.globals().AHORA = lua.globals().AHORA + 300
+    detectar(lua)
+    assert not any("Escaneo terminado" in a for a in avisos(lua))
+
+
 # -- Cancelar --------------------------------------------------------------------
 
 
@@ -1848,7 +1951,35 @@ def test_si_no_se_pudo_repasar_el_precio_el_panel_lo_dice():
     pulsar(lua)
     lua.globals().VENCER_TEMPORIZADORES()  # la respuesta no llega
 
-    assert estado(lua) == "Cierra y abre la casa para repasar precios"
+    assert estado(lua) == "Pulsa Escanear para repasar precios"
+
+
+def test_escanear_saca_al_panel_de_repasar_precios():
+    """El panel manda a Escanear: tiene que estar encendido y bastar."""
+    lua = runtime()
+    devolver(lua, 10)
+    envejecer_precios(lua)
+    en_la_bolsa(lua, 3)
+    en_la_casa(lua, [en_venta(999, 90_000)])
+    abrir_casa(lua)
+    pulsar(lua)
+    lua.globals().VENCER_TEMPORIZADORES()
+
+    assert reescanear(lua)
+    responder_todo(lua)
+    assert estado(lua) == "Postear"
+
+
+def test_escanear_rescata_una_cancelacion_que_no_respondio():
+    lua = runtime()
+    adelantadas(lua, 10)
+    pulsar(lua)
+    lua.globals().RELOJ = lua.globals().RELOJ + 11
+    assert estado(lua) == "Pulsa Escanear para repasar precios"
+
+    assert reescanear(lua)
+    responder_todo(lua)
+    assert estado(lua) == "Cancelar (1)"
 
 
 def test_el_boton_dice_que_toca_y_se_desactiva_mientras_busca():
@@ -2016,7 +2147,7 @@ def test_si_la_busqueda_no_confirmo_una_adelantada_el_panel_pide_repasar():
     assert pulsar(lua) == "buscar"
     lua.globals().VENCER_TEMPORIZADORES()  # la respuesta no llega
 
-    assert estado(lua) == "Cierra y abre la casa para repasar precios"
+    assert estado(lua) == "Pulsa Escanear para repasar precios"
 
 
 def test_el_recuento_de_cancelar_solo_cuenta_lo_que_se_puede_cancelar():
@@ -2055,7 +2186,7 @@ def test_la_version_del_toc_es_la_del_addon():
 
     en_toc = re.search(r"^## Version: (.+)$", toc, re.MULTILINE).group(1).strip()
     en_lua = re.search(r'^local ADDON_VERSION = "(.+)"$', lua, re.MULTILINE).group(1)
-    assert en_toc == en_lua == "1.41"
+    assert en_toc == en_lua == "1.42"
 
 
 # -- Lo que el juego confirma y lo que se repone por fuera --------------------
@@ -2213,7 +2344,7 @@ def test_una_cancelacion_sin_respuesta_no_deja_el_panel_en_cancelando():
     pulsar(lua)
     lua.globals().RELOJ = lua.globals().RELOJ + 11
 
-    assert estado(lua) == "Cierra y abre la casa para repasar precios"
+    assert estado(lua) == "Pulsa Escanear para repasar precios"
 
 
 def test_un_posteo_sin_respuesta_no_deja_el_panel_en_posteando():
@@ -2225,7 +2356,7 @@ def test_un_posteo_sin_respuesta_no_deja_el_panel_en_posteando():
     pulsar(lua)
     lua.globals().RELOJ = lua.globals().RELOJ + 11
 
-    assert estado(lua) == "Cierra y abre la casa para repasar precios"
+    assert estado(lua) == "Pulsa Escanear para repasar precios"
 
 
 def test_la_cola_sobrevive_a_un_reload():
@@ -2422,7 +2553,7 @@ def test_no_postea_otra_mientras_espera_a_que_se_cree_la_anterior():
 
     lua.globals().RELOJ = lua.globals().RELOJ + 11
     assert pulsar(lua) is None
-    assert estado(lua) == "Cierra y abre la casa para repasar precios"
+    assert estado(lua) == "Pulsa Escanear para repasar precios"
     assert [c[0] for c in llamadas(lua)].count("PostItem") == 1
 
     lua.globals().DISPARAR("AUCTION_HOUSE_CLOSED")
@@ -2480,7 +2611,7 @@ def test_una_confirmacion_descartada_no_hace_olvidar_la_otra_copia():
 
     # No se sabe si la primera llego a crearse: la otra copia espera.
     assert pulsar(lua) is None
-    assert estado(lua) == "Cierra y abre la casa para repasar precios"
+    assert estado(lua) == "Pulsa Escanear para repasar precios"
 
     lua.globals().DISPARAR("AUCTION_HOUSE_CLOSED")
     volver_a_la_casa(lua, [en_venta(999, 90_000)])
@@ -2527,7 +2658,7 @@ def test_el_boton_deja_de_decir_posteando_al_pasar_la_espera():
 
     lua.globals().RELOJ = lua.globals().RELOJ + 11
     lua.globals().VENCER_TEMPORIZADORES()
-    assert lua.eval("WowAlertsReposteoBoton:GetText()") == "Cierra y abre la casa para repasar precios"
+    assert lua.eval("WowAlertsReposteoBoton:GetText()") == "Pulsa Escanear para repasar precios"
 
 
 # ---------------------------------------------------------------------------

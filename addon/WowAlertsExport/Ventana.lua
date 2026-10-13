@@ -17,6 +17,8 @@ local ALTO_BARRA = 14
 local HUECO_BARRA = 20
 local ALTO_BOTON = 20
 local HUECO_BOTON = 24
+-- El de escanear va en la linea de la cabecera, a la derecha.
+local ANCHO_ESCANEAR = 80
 -- El del siguiente paso es mas alto: en la Steam Deck se pulsa con el dedo.
 local ALTO_SIGUIENTE = 32
 local HUECO_SIGUIENTE = 36
@@ -41,7 +43,7 @@ local FASES = {
     postear = { 0.25, 0.8, 0.35, "Reposteando" },
 }
 
-local marco, contenido, filas, cabecera, barra, botonCaducadas, botonSiguiente, scroll
+local marco, contenido, filas, cabecera, barra, botonCaducadas, botonSiguiente, botonEscanear, scroll
 local ocultaAdrede = false
 
 -- Los nombres nuevos de estas dos viven en C_Item; se deja el viejo de
@@ -125,6 +127,33 @@ local function crearMarco()
 
     cabecera = marco:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     cabecera:SetPoint("TOPLEFT", marco, "TOPLEFT", 14, -30)
+    -- Hasta el boton de escanear, y recortada si no cabe en vez de pisarlo.
+    cabecera:SetWidth(ANCHO - 14 - 16 - ANCHO_ESCANEAR - 6)
+    cabecera:SetJustifyH("LEFT")
+    cabecera:SetWordWrap(false)
+
+    -- Volver a buscar quien te adelanta sin cerrar la casa: la busqueda sola
+    -- sale una vez al abrir. Buscar no es una funcion protegida, asi que este
+    -- clic no gasta la pulsacion de nada.
+    botonEscanear = CreateFrame("Button", nil, marco, "UIPanelButtonTemplate")
+    botonEscanear:SetSize(ANCHO_ESCANEAR, 20)
+    botonEscanear:SetPoint("TOPRIGHT", marco, "TOPRIGHT", -16, -25)
+    botonEscanear:SetText("Escanear")
+    botonEscanear:SetScript("OnClick", function()
+        if WowAlertsReposteo and WowAlertsReposteo.Reescanear then
+            WowAlertsReposteo.Reescanear()
+        end
+    end)
+    botonEscanear:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("Ver si te han adelantado")
+        GameTooltip:AddLine("Vuelve a mirar todas tus subastas vigiladas.", 1, 1, 1)
+        GameTooltip:AddLine("Al acabar lo dice en el chat.", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    botonEscanear:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
 
     -- Lo mismo que la tecla de interaccion, para quien no tiene teclado (la
     -- Steam Deck). El clic es una pulsacion de verdad, asi que vale para
@@ -431,6 +460,21 @@ local function pintarBotonCaducadas(desplazamiento)
     return HUECO_BOTON
 end
 
+-- Apagado mientras busca, antes de la primera busqueda o con algo esperando
+-- respuesta del juego (ver WowAlertsReposteo.SePuedeReescanear).
+local function pintarBotonEscanear()
+    if not WowAlertsReposteo.Reescanear or not WowAlertsReposteo.SePuedeReescanear then
+        botonEscanear:Hide()
+        return
+    end
+    if WowAlertsReposteo.SePuedeReescanear() then
+        botonEscanear:Enable()
+    else
+        botonEscanear:Disable()
+    end
+    botonEscanear:Show()
+end
+
 -- El boton del siguiente paso, con lo que hara al pulsarlo. Devuelve lo que
 -- ocupa, como la barra.
 local function pintarBotonSiguiente(desplazamiento)
@@ -522,6 +566,7 @@ function V.Refrescar()
     cabecera:SetText(("%s  -  %s puestas  -  |cffff4a3d%s adelantadas|r"):format(
         UnitName("player"), total, adelantadas))
 
+    pintarBotonEscanear()
     local hueco = pintarBotonSiguiente(0)
     hueco = hueco + pintarBotonCaducadas(hueco)
     if WowAlertsReposteo.Progreso then

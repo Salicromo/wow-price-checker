@@ -765,6 +765,16 @@ Grebas 3/7`, diciendo cual esta mirando), naranja mientras cancelas
 (`Cancelando 2/5`) y verde mientras repones (`Reposteando 1/4`). Al acabar el
 escaneo se queda llena en vez de desaparecer.
 
+Arriba a la derecha, en la linea de la cabecera, el boton **`Escanear`** vuelve a
+mirar si te han adelantado sin cerrar la casa. La busqueda sola sale una vez al
+abrir, y si llevas un rato dentro alguien ha podido ponerse delante desde
+entonces. Este mira todas tus subastas vigiladas otra vez, tambien las que se
+vieron hace poco sin nadie delante, y al acabar lo dice en el chat:
+`Escaneo terminado: 2 adelantadas` o `Escaneo terminado: nadie te adelanta`. Lo
+que encuentre entra en la cola como siempre, y lo que ya nadie adelanta sale de
+ella. Esta apagado hasta que acaba la primera busqueda, mientras busca y
+mientras una cancelacion o un posteo esperan respuesta del juego.
+
 Cada fila dice el precio, el ilvl y **lo que le queda de listado** (`11h 32m`),
 y lleva a la derecha un boton **`X` que cancela esa subasta**, te hayan
 adelantado o no. Cancela una sola con cada clic, igual que la tecla, y lo que
@@ -817,15 +827,14 @@ Lo que conviene saber:
   uno que no esta en la lista, anadelo.
 - Solo cancela lo que la busqueda de esta visita ha confirmado: cancelar cuesta
   el deposito. Si la casa no responde a la busqueda de un objeto en diez
-  segundos, se salta, y el boton te pide `Cierra y abre la casa para repasar
-  precios`.
+  segundos, se salta, y el boton te pide `Pulsa Escanear para repasar
+  precios`: el boton `Escanear` de la ventana vuelve a buscarlo.
 - La cola se guarda por personaje y sobrevive a `/reload`. Lo que lleve mas de
   48 horas desde que se detecto se descarta, aunque este en la bolsa.
 - Lo que se vio sin nadie delante tambien se guarda, y vale para todos los
   personajes de esa cuenta de WoW, porque va por id de subasta. Una subasta
   nueva nunca se salta: su id no esta en la lista. Para forzar un escaneo
-  completo de algo que ya estaba puesto, espera los cinco minutos; no hay una
-  orden para vaciarlo a mano.
+  completo de algo que ya estaba puesto, pulsa `Escanear` en la ventana.
 - Si vuelves a poner algo a mano, el addon lo saca de la cola la proxima vez que
   busque en la casa: ve una subasta tuya de ese objeto creada despues de
   cancelarlo y ninguna copia en la bolsa. Si lo vendes o lo envias, lo saca al
