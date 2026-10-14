@@ -40,7 +40,7 @@ items:
 
   - name: "Slitherscale Girdle"
     max_price_by_ilvl:
-      { 295: 9000, 298: 12000, 305: 18000, 308: 20000, 311: 40000,
+      { 295: 9000, 298: 12000, 305: 14000, 308: 20000, 311: 40000,
         318: 125000, 321: 140000, 324: 150000, 328: 200000 }
 
   - name: "Slippers of the Hissing Cult"
@@ -55,7 +55,7 @@ items:
 
   - name: "Venom Rite Mantle"
     max_price_by_ilvl:
-      { 295: 9000, 298: 12000, 305: 20000, 308: 20000, 311: 40000,
+      { 295: 9000, 298: 12000, 305: 14000, 308: 20000, 311: 40000,
         318: 125000, 321: 140000, 324: 150000, 328: 250000 }
 
   - name: "Crushing Coiler Coif"
@@ -80,7 +80,7 @@ items:
   # sin ella, al no avisar de undercut tampoco entrarian en el reposteo.
   - name: "Pattern: Arcanoweave Cord"
     item_id: 258126
-    max_price: 60000
+    max_price: 40000
     avisar_undercut: false
     repostear: true
 
