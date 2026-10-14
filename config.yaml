@@ -78,12 +78,6 @@ items:
   # chollos y ventas, y eso es lo que apaga "avisar_undercut". Pero si quiero
   # repostearlos con la tecla del addon, y para eso lleva "repostear: true":
   # sin ella, al no avisar de undercut tampoco entrarian en el reposteo.
-  - name: "Pattern: Arcanoweave Cord"
-    item_id: 258126
-    max_price: 40000
-    avisar_undercut: false
-    repostear: true
-
   - name: "Pattern: Luxurious Silvermoon Lounge Cushion"
     item_id: 258131
     max_price: 40000

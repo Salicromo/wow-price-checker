@@ -3,7 +3,6 @@
 
 WowAlertsVigilados = {
     objetos = {
-        [258126] = "Pattern: Arcanoweave Cord",
         [258131] = "Pattern: Luxurious Silvermoon Lounge Cushion",
         [271434] = "Venom Rite Mantle",
         [271435] = "Slippers of the Hissing Cult",
