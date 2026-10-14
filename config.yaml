@@ -30,47 +30,47 @@ region: eu
 items:
   - name: "Greaves of the Noxious Depths"
     max_price_by_ilvl:
-      { 295: 6999, 308: 13000, 311: 35000,
+      { 308: 13000, 311: 35000,
         318: 80000, 321: 90000, 324: 100000, 328: 140000 }
 
   - name: "Temple Delver's Mystic Helm"
     max_price_by_ilvl:
-      { 295: 9000, 308: 24000, 311: 30000,
+      { 308: 24000, 311: 30000,
         318: 80000, 321: 90000, 324: 140000, 328: 150000 }
 
   - name: "Slitherscale Girdle"
     max_price_by_ilvl:
-      { 295: 9000, 308: 20000, 311: 40000,
+      { 308: 20000, 311: 40000,
         318: 125000, 321: 140000, 324: 150000, 328: 200000 }
 
   - name: "Slippers of the Hissing Cult"
     max_price_by_ilvl:
-      { 295: 9000, 308: 20000, 311: 30000,
+      { 308: 20000, 311: 30000,
         318: 100000, 321: 120000, 324: 150000, 328: 200000 }
 
   - name: "Pauldrons of the Forgotten Sacrifice"
     max_price_by_ilvl:
-      { 295: 9000, 308: 30000, 311: 50000,
+      { 308: 30000, 311: 50000,
         318: 125000, 321: 140000, 324: 150000, 328: 250000 }
 
   - name: "Venom Rite Mantle"
     max_price_by_ilvl:
-      { 295: 9000, 308: 20000, 311: 40000,
+      { 308: 20000, 311: 40000,
         318: 125000, 321: 140000, 324: 150000, 328: 250000 }
 
   - name: "Crushing Coiler Coif"
     max_price_by_ilvl:
-      { 295: 9000, 308: 16000, 311: 30000,
+      { 308: 16000, 311: 30000,
         318: 90000, 321: 110000, 324: 125000, 328: 200000 }
 
   - name: "Fanged Brute's Greatbelt"
     max_price_by_ilvl:
-      { 295: 9000, 308: 30000, 311: 40000,
+      { 308: 30000, 311: 40000,
         318: 125000, 321: 140000, 324: 150000, 328: 200000 }
 
   - name: "Bound Serpent's Jade Eye"
     max_price_by_ilvl:
-      { 295: 9000, 308: 40000, 311: 50000,
+      { 308: 40000, 311: 50000,
         318: 105000, 321: 105000, 324: 150000, 328: 250000 }
 
   # Los patrones no escalan: no hay ilvl que valga mas o menos, asi que llevan
