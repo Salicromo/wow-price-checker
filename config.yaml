@@ -61,7 +61,7 @@ items:
   - name: "Crushing Coiler Coif"
     max_price_by_ilvl:
       { 308: 16000, 311: 30000,
-        318: 90000, 321: 110000, 324: 125000, 328: 200000 }
+        318: 90000, 321: 110000, 324: 125000, 328: 170000 }
 
   - name: "Fanged Brute's Greatbelt"
     max_price_by_ilvl:
