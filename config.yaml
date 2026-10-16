@@ -51,7 +51,7 @@ items:
   - name: "Pauldrons of the Forgotten Sacrifice"
     max_price_by_ilvl:
       { 308: 30000, 311: 50000,
-        318: 125000, 321: 140000, 324: 150000, 328: 250000 }
+        318: 160000, 321: 200001, 324: 250000, 328: 250000 }
 
   - name: "Venom Rite Mantle"
     max_price_by_ilvl:
