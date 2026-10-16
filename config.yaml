@@ -56,7 +56,7 @@ items:
   - name: "Venom Rite Mantle"
     max_price_by_ilvl:
       { 308: 20000, 311: 40000,
-        318: 125000, 321: 140000, 324: 150000, 328: 250000 }
+        318: 125000, 321: 140000, 324: 180001, 328: 250000 }
 
   - name: "Crushing Coiler Coif"
     max_price_by_ilvl:
