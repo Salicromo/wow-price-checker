@@ -1,0 +1,24 @@
+# Temporal: comprueba en el volcado de las 22:36 si siguen las subastas del
+# aviso de las 21:37 del 2026-10-16. Borrar la rama despues de leerlo.
+name: Diagnostico volcado
+
+on:
+  push:
+    branches: [diag-volcado]
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python diag_volcado.py
+        env:
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+          PYTHONUNBUFFERED: '1'
