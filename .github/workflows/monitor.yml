@@ -60,6 +60,7 @@ jobs:
           persist-credentials: false
 
       - name: Traer lo privado
+        id: privado
         # Lo que no puede estar en un repositorio publico vive en uno privado,
         # <este>-privado, y se lee con el secret PRIVADO_TOKEN:
         #
@@ -91,11 +92,24 @@ jobs:
           # al repositorio privado, no. Sin esto los dos casos se veian igual y
           # se tardaba en dar con el fallo. El token va fuera del mensaje: en
           # un repositorio publico los logs los lee cualquiera.
+          #
+          # Tres intentos: GitHub falla a veces una sola vez y a la siguiente
+          # va bien. Si ni asi, 'fallo=1' avisa por Discord mas abajo: sin esto
+          # los chollos salian con el reino en vez del personaje y nada decia
+          # por que.
           traer() {
-            if fallo=$(git fetch --depth=1 "$privado" "$1" 2>&1); then
-              return 0
-            fi
+            for intento in 1 2 3; do
+              if fallo=$(git fetch --depth=1 "$privado" "$1" 2>&1); then
+                return 0
+              fi
+              if [[ "$fallo" == *"couldn't find remote ref"* ]]; then
+                echo "La rama '$1' no existe todavia en el repositorio privado."
+                return 1
+              fi
+              [ "$intento" -lt 3 ] && sleep 15
+            done
             echo "::warning::No he podido leer la rama '$1' del repositorio privado: ${fallo//$token/***}"
+            echo "fallo=1" >> "$GITHUB_OUTPUT"
             return 1
           }
 
@@ -160,6 +174,45 @@ jobs:
           restore-keys: |
             wow-alerts-state-
 
+      - name: Avisar si no llega lo privado
+        # Una vez por racha de fallos, no cada hora: la marca en .state se
+        # borra en cuanto el repositorio privado vuelve a leerse. Va antes de
+        # los chollos para que el aviso llegue antes que ellos.
+        if: '!inputs.dry_run'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FALLO: ${{ steps.privado.outputs.fallo }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from wowalerts.notifier import DiscordError, DiscordNotifier
+
+          marca = Path(".state/fallo_privado_avisado")
+          if os.environ.get("FALLO") != "1":
+              marca.unlink(missing_ok=True)
+          elif not marca.exists() and os.environ.get("DISCORD_WEBHOOK_URL"):
+              try:
+                  DiscordNotifier(os.environ["DISCORD_WEBHOOK_URL"]).send_warning(
+                      "No puedo leer el repositorio privado",
+                      "Tres intentos y GitHub no deja leer wow-price-checker-privado, "
+                      "asi que los chollos salen con el reino en vez del personaje y "
+                      "tus subastas no se vigilan.\n\n"
+                      "Si se repite en la proxima pasada, el PRIVADO_TOKEN ha "
+                      "caducado: crea uno nuevo con Contents: Read and write en el "
+                      "-privado y guardalo con\n"
+                      "`gh secret set PRIVADO_TOKEN -R Salicromo/wow-price-checker`.\n\n"
+                      "No vuelvo a avisar hasta que se arregle.",
+                  )
+              except DiscordError as exc:
+                  # Sin marca: se reintenta en la pasada siguiente. Y sin tumbar
+                  # el paso, que dejaria la pasada sin buscar chollos.
+                  print(f"::warning::Tampoco he podido avisar por Discord: {exc}")
+              else:
+                  marca.parent.mkdir(exist_ok=True)
+                  marca.write_text("")
+          PY
+
       - name: Buscar chollos
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -210,7 +263,10 @@ jobs:
         # Con el catalogo y no con cualquier fichero: la subida rehace la rama
         # con lo que haya en publicar/, y si datos_app.py ha fallado ahi solo
         # queda adelantadas.json. Subirlo borraria lo que lee la app.
-        if: "!cancelled() && !inputs.dry_run && hashFiles('publicar/catalogo.json') != ''"
+        #
+        # Si al principio no se pudo leer el privado, tampoco se podra escribir:
+        # el aviso por Discord ya lo ha contado y no hace falta una cruz roja.
+        if: "!cancelled() && !inputs.dry_run && hashFiles('publicar/catalogo.json') != '' && steps.privado.outputs.fallo != '1'"
         env:
           PRIVADO_TOKEN: ${{ secrets.PRIVADO_TOKEN }}
         run: |
@@ -233,7 +289,13 @@ jobs:
           # Sin cambios no hay commit: 'commit' devolveria 1 y tumbaria el paso.
           git diff --cached --quiet && echo "Sin cambios que publicar." && exit 0
           git commit -q -m "Datos de la app: $(date -u '+%Y-%m-%d %H:%M UTC')"
-          git push -q --force origin datos
+          # Tres intentos, como al traer: el 2026-10-19 GitHub rechazo una
+          # subida con "fatal error in commit_refs", un fallo suyo de un rato.
+          for intento in 1 2 3; do
+            git push -q --force origin datos && exit 0
+            [ "$intento" -lt 3 ] && sleep 15
+          done
+          exit 1
 
       - name: Guardar memoria de avisos
         # Tambien cuando el escaneo va mal: lo ya avisado sigue siendo valido y
