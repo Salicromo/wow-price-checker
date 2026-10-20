@@ -41,3 +41,12 @@ def test_el_aviso_de_privado_va_antes_de_los_chollos_y_con_la_memoria():
     assert nombres.index("Recuperar memoria de avisos anteriores") < aviso
     assert aviso < nombres.index("Buscar chollos")
     assert "steps.privado.outputs.fallo" in paso("Avisar si no llega lo privado")["env"]["FALLO"]
+
+
+def test_el_token_del_privado_no_va_en_la_url():
+    """Con el token en la URL, git lo pierde al seguir una redireccion de
+    GitHub y se queda pidiendo usuario: desde el 2026-10-19 fallaba asi una
+    pasada de cada tres."""
+    for nombre in ("Traer lo privado", "Subir los datos de la app"):
+        assert "${token}@" not in paso(nombre)["run"]
+    assert "credential.helper" in paso("Traer lo privado")["run"]

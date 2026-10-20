@@ -79,14 +79,23 @@ jobs:
             echo "::warning::Sin el secret PRIVADO_TOKEN: sigo sin tus subastas."
             exit 0
           fi
-          # El token va de usuario, que es como git admite un fine-grained; con
-          # 'x-access-token:token' --lo que usa una GitHub App-- GitHub
-          # responde "Repository not found", igual que si no hubiera permiso.
-          # El tr quita el salto de linea que se cuela al pegarlo en el secret,
-          # que rompe la URL.
+          # El token se lo da a git un credential helper, no la URL. Desde el
+          # 2026-10-19 GitHub contesta a veces con una redireccion
+          # ('redirecting to ...-privado.git/'), git la sigue sin lo que iba en
+          # la URL y acaba pidiendo usuario: fallaba una pasada de cada tres,
+          # con el token viejo y con uno recien regenerado. El helper vuelve a
+          # dar el token despues de la redireccion.
+          #
+          # Usuario la cuenta duena y el token de contrasena, como GitHub
+          # documenta para un fine-grained; con 'x-access-token' --lo que usa
+          # una GitHub App-- responde "Repository not found". El tr quita el
+          # salto de linea que se cuela al pegarlo en el secret.
           token=$(printf '%s' "$PRIVADO_TOKEN" | tr -d '[:space:]')
           echo "::add-mask::$token"
-          privado="https://${token}@github.com/${GITHUB_REPOSITORY}-privado.git"
+          export GIT_PRIVADO_TOKEN="$token" GIT_TERMINAL_PROMPT=0
+          git config --global credential.helper \
+            '!f() { echo "username=${GITHUB_REPOSITORY_OWNER}"; echo "password=${GIT_PRIVADO_TOKEN}"; }; f'
+          privado="https://github.com/${GITHUB_REPOSITORY}-privado.git"
 
           # Que la rama no exista es normal el dia uno; que el token no llegue
           # al repositorio privado, no. Sin esto los dos casos se veian igual y
@@ -198,10 +207,10 @@ jobs:
                       "Tres intentos y GitHub no deja leer wow-price-checker-privado, "
                       "asi que los chollos salen con el reino en vez del personaje y "
                       "tus subastas no se vigilan.\n\n"
-                      "Si se repite en la proxima pasada, el PRIVADO_TOKEN ha "
-                      "caducado: crea uno nuevo con Contents: Read and write en el "
-                      "-privado y guardalo con\n"
-                      "`gh secret set PRIVADO_TOKEN -R Salicromo/wow-price-checker`.\n\n"
+                      "El motivo esta en el log de la pasada, paso *Traer lo "
+                      "privado*. Si dice *Repository not found* o *Bad "
+                      "credentials*, revisa el PRIVADO_TOKEN (Contents: Read and "
+                      "write en el -privado).\n\n"
                       "No vuelvo a avisar hasta que se arregle.",
                   )
               except DiscordError as exc:
@@ -278,10 +287,12 @@ jobs:
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
           cd publicar
           git init -q
-          # El token de usuario, como en el paso que se trae lo privado.
+          # El token por el credential helper que dejo configurado el paso que
+          # se trae lo privado, y no en la URL: ver alli por que.
           token=$(printf '%s' "$PRIVADO_TOKEN" | tr -d '[:space:]')
           echo "::add-mask::$token"
-          git remote add origin "https://${token}@github.com/${GITHUB_REPOSITORY}-privado.git"
+          export GIT_PRIVADO_TOKEN="$token" GIT_TERMINAL_PROMPT=0
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}-privado.git"
           # La rama puede no existir todavia, y eso no es un error.
           git fetch --depth=1 origin datos 2>/dev/null || true
           git checkout -B datos
