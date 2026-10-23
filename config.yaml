@@ -46,7 +46,7 @@ items:
   - name: "Slippers of the Hissing Cult"
     max_price_by_ilvl:
       { 308: 11000, 311: 30000,
-        318: 100000, 321: 120000, 324: 150000, 328: 200000 }
+        318: 100000, 321: 120000, 324: 150000, 328: 180000 }
 
   - name: "Pauldrons of the Forgotten Sacrifice"
     max_price_by_ilvl:
@@ -56,7 +56,7 @@ items:
   - name: "Venom Rite Mantle"
     max_price_by_ilvl:
       { 308: 18000, 311: 30000,
-        318: 125000, 321: 140000, 324: 180001, 328: 250000 }
+        318: 125000, 321: 140000, 324: 180001, 328: 220000 }
 
   - name: "Crushing Coiler Coif"
     max_price_by_ilvl:
