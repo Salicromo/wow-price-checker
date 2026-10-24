@@ -2186,7 +2186,7 @@ def test_la_version_del_toc_es_la_del_addon():
 
     en_toc = re.search(r"^## Version: (.+)$", toc, re.MULTILINE).group(1).strip()
     en_lua = re.search(r'^local ADDON_VERSION = "(.+)"$', lua, re.MULTILINE).group(1)
-    assert en_toc == en_lua == "1.42"
+    assert en_toc == en_lua == "1.43"
 
 
 # -- Lo que el juego confirma y lo que se repone por fuera --------------------
@@ -3282,6 +3282,30 @@ def test_la_lista_cambia_al_cancelar_y_al_postear():
     assert [(f["auctionID"], f["grupo"]) for f in subastas(lua)] == [(nueva, "reposteada")]
 
 
+def test_lo_recien_repuesto_que_te_vuelven_a_adelantar_sale_como_adelantada():
+    """Visto en el juego el 2026-10-13: repones, alguien iguala tu precio al
+    momento y Escanear lo encuentra, pero la ventana la seguia pintando en
+    azul y el chat decia que nadie te adelantaba hasta cerrar y abrir."""
+    lua = runtime()
+    adelantadas(lua, 10)
+    pulsar(lua)
+    lua.globals().DISPARAR("AUCTION_CANCELED", 10)
+    poner(lua, "SUBASTAS", [])
+    en_la_bolsa(lua, 3)
+    assert pulsar(lua) == "postear"
+    nueva = 5000 + len(llamadas(lua))
+    poner(lua, "SUBASTAS", [mia(nueva, 90_000)])
+    antes = len(avisos(lua))
+
+    lua.globals().RELOJ = lua.globals().RELOJ + 11
+    en_la_casa(lua, [en_venta(nueva + 1, 90_000)])
+    assert reescanear(lua)
+    responder_todo(lua)
+
+    assert [(f["auctionID"], f["grupo"]) for f in subastas(lua)] == [(nueva, "adelantada")]
+    assert avisos(lua)[antes:] == ["|cff33ccffReposteo:|r Escaneo terminado: 1 adelantada"]
+
+
 def test_lo_recien_repuesto_sale_aunque_la_lista_del_juego_no_lo_traiga():
     """La lista de tus subastas tarda en traer la nueva, y machacando la tecla
     quieres ver ya que esa esta hecha."""
@@ -3711,10 +3735,10 @@ def test_sin_los_segundos_solo_cuentan_las_bandas_que_no_dejan_duda():
 CADUCADA = "Auction expired: Greaves of the Noxious Depths"
 
 
-def caducar(lua, precio=100_000):
+def caducar(lua, precio=100_000, segundos=None):
     """Tu subasta de Grebas a `precio`, vista en la casa, que despues caduca:
     ya no esta entre tus subastas y su carta espera en el buzon."""
-    poner(lua, "SUBASTAS", [mia(10, precio)])
+    poner(lua, "SUBASTAS", [mia(10, precio, segundos=segundos)])
     en_la_casa(lua, [])
     detectar(lua)
     cerrar_casa(lua)
@@ -3761,6 +3785,77 @@ def test_lo_caducado_se_repone_al_precio_de_ahora_o_al_que_tenia(rivales, precio
     responder_todo(lua)
     assert pulsar(lua) == "postear"
     assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, precio)
+
+
+def reponer_caducada(lua):
+    """Recoge la carta de lo caducado y lo vuelve a postear. Devuelve el PostItem."""
+    abrir_buzon(lua)
+    poner(lua, "CORREO", [])
+    en_la_bolsa(lua, 3)
+    lua.globals().DISPARAR("MAIL_INBOX_UPDATE")
+    lua.globals().BUZON_ABIERTO = False
+    lua.globals().DISPARAR("MAIL_CLOSED")
+    en_la_casa(lua, [])
+    abrir_casa(lua)
+    assert pulsar(lua) == "buscar"
+    responder_todo(lua)
+    assert pulsar(lua) == "postear"
+    return llamadas(lua)[-1]
+
+
+@pytest.mark.parametrize(
+    "segundos, duracion",
+    [
+        (47 * 3600, 3),     # le quedaban mas de 24 h: era de 48
+        (20 * 3600, 1),     # pudo ser de 24 o de 48: la de siempre
+        (None, 1),          # el juego no dio lo que le quedaba
+    ],
+)
+def test_lo_caducado_de_48_horas_se_repone_a_48_horas(segundos, duracion):
+    """Nadie la adelanto y no se vendio: vuelve con la duracion que tenia."""
+    lua = runtime()
+    caducar(lua, segundos=segundos)
+
+    assert reponer_caducada(lua) == ("PostItem", 0, 3, duracion, 1, 100_000)
+
+
+def test_la_de_48_horas_se_recuerda_aunque_luego_le_quede_poco():
+    lua = runtime()
+    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=47 * 3600)])
+    en_la_casa(lua, [])
+    detectar(lua)
+    cerrar_casa(lua)
+    caducar(lua, segundos=600)
+
+    assert reponer_caducada(lua)[3] == 3
+
+
+def test_otra_subasta_mas_barata_no_hereda_las_48_horas():
+    lua = runtime()
+    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=47 * 3600)])
+    en_la_casa(lua, [])
+    detectar(lua)
+    cerrar_casa(lua)
+    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=40 * 3600), mia(12, 90_000, segundos=600)])
+    abrir_casa(lua)
+    lua.globals().DISPARAR("OWNED_AUCTIONS_UPDATED")
+
+    assert precio_apuntado(lua).get("duracion") is None
+
+
+def test_la_de_48_horas_que_te_adelantan_se_repone_con_la_de_siempre():
+    """Solo lo que nadie adelanto vuelve a 48 h."""
+    lua = runtime()
+    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=47 * 3600)])
+    en_la_casa(lua, [en_venta(999, 90_000)])
+    detectar(lua)
+    pulsar(lua)
+    lua.globals().DISPARAR("AUCTION_CANCELED", 10)
+    poner(lua, "SUBASTAS", [])
+    en_la_bolsa(lua, 3)
+
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, 90_000)
 
 
 def test_la_misma_carta_de_caducada_no_crea_dos_entradas():
@@ -3996,9 +4091,17 @@ def test_sin_buscar_todavia_no_hay_precio():
     assert all("precio" not in f for f in faltan(lua))
 
 
-def pisa_de_las_grebas(lua, a_308, ilvls):
-    """Con las grebas a 308 a `a_308` y los ilvl de arriba a `ilvls`, el aviso."""
-    poner(lua, "RESULTADOS", {f"{GREBAS}:308:0": [en_venta(1, a_308)]})
+def pisa_de_las_grebas(lua, a_308, ilvls, de_verdad=None):
+    """Con las grebas a 308 a `a_308` y los ilvl de arriba a `ilvls`, el aviso.
+
+    `ilvls` es lo que dice la busqueda por nombre; `de_verdad`, las filas que
+    trae despues la busqueda de cada ilvl. Sin `de_verdad`, coinciden.
+    """
+    if de_verdad is None:
+        de_verdad = {n: [en_venta(100 + n, p)] for n, p in ilvls.items()}
+    resultados = {f"{GREBAS}:308:0": [en_venta(1, a_308)]}
+    resultados.update({f"{GREBAS}:{n}:0": filas for n, filas in de_verdad.items()})
+    poner(lua, "RESULTADOS", resultados)
     en_la_navegacion(lua, {(GREBAS, n): p for n, p in ilvls.items()})
     abrir_casa(lua)
     lua.globals().WowAlertsReposteo.Siguiente()
@@ -4052,6 +4155,122 @@ def test_la_navegacion_de_otro_objeto_no_cuenta():
     responder_faltan(lua)
 
     assert faltan(lua)[0].get("pisa") is None
+
+
+def test_un_ilvl_superior_que_ya_no_esta_no_pisa():
+    """La busqueda por nombre da un minimo por ilvl, pero no quien lo vende ni
+    si sigue ahi. Antes de avisar se mira ese ilvl de verdad."""
+    pisa = pisa_de_las_grebas(con_faltan(), 250_000, {311: 240_000}, de_verdad={311: []})
+
+    assert pisa is None
+
+
+def test_un_ilvl_superior_de_tus_alts_no_pisa():
+    pisa = pisa_de_las_grebas(
+        con_faltan(), 250_000, {311: 240_000},
+        de_verdad={311: [en_venta(1, 240_000, dueno="Mbarval")]},
+    )
+
+    assert pisa is None
+
+
+def test_pisa_al_precio_de_verdad_no_al_de_la_busqueda_por_nombre():
+    pisa = pisa_de_las_grebas(
+        con_faltan(), 250_000, {311: 240_000},
+        de_verdad={311: [en_venta(1, 240_000, dueno="Mbarval"), en_venta(2, 245_000)]},
+    )
+
+    assert pisa == {"ilvl": 311, "precio": 245_000}
+
+
+def test_si_el_mas_barato_no_esta_se_mira_el_siguiente():
+    pisa = pisa_de_las_grebas(
+        con_faltan(), 250_000, {311: 240_000, 318: 300_000},
+        de_verdad={311: [], 318: [en_venta(1, 300_000)]},
+    )
+
+    assert pisa == {"ilvl": 318, "precio": 300_000}
+
+
+def lista_entera(lua, filas):
+    """El jugador abre las grebas en la casa: la lista con todos los ilvl, como
+    la de vender (itemKey con itemLevel 0). `filas` es [(ilvl, precio, dueno)]."""
+    poner(lua, "RESULTADOS", {f"{GREBAS}:0:0": [
+        {**en_venta(i, precio, dueno=dueno), "itemLink": f"[Grebas]ilvl{ilvl}"}
+        for i, (ilvl, precio, dueno) in enumerate(filas, start=1)
+    ]})
+    lua.globals().DISPARAR(
+        "ITEM_SEARCH_RESULTS_UPDATED",
+        lua.table_from({"itemID": GREBAS, "itemLevel": 0, "itemSuffix": 0}),
+    )
+
+
+def grebas_en_faltan(lua):
+    return next(f for f in faltan(lua) if f["itemID"] == GREBAS)
+
+
+def test_la_lista_que_tienes_delante_corrige_el_aviso():
+    """La captura: el aviso decia 311 a 114.959 de hace una hora y la lista de
+    la casa ya tenia el 311 mas barato a 180.000. Lo que se ve en la casa manda."""
+    oro = 10_000
+    lua = con_faltan()
+    apuntado = pisa_de_las_grebas(lua, 200_000 * oro, {311: 114_959 * oro})
+    assert apuntado == {"ilvl": 311, "precio": 114_959 * oro}
+
+    lista_entera(lua, [
+        (305, 109_994 * oro, "Extrano"), (311, 180_000 * oro, "Extrano"),
+        (308, 200_000 * oro, "Extrano"), (318, 269_999 * oro, "Extrano"),
+    ])
+
+    grebas = grebas_en_faltan(lua)
+    assert grebas["precio"] == 200_000 * oro
+    assert grebas["pisa"] == {"ilvl": 311, "precio": 180_000 * oro}
+
+
+def test_la_lista_que_tienes_delante_quita_el_aviso():
+    oro = 10_000
+    lua = con_faltan()
+    assert pisa_de_las_grebas(lua, 200_000 * oro, {311: 114_959 * oro}) is not None
+
+    lista_entera(lua, [(308, 200_000 * oro, "Extrano"), (311, 250_000 * oro, "Extrano")])
+
+    assert grebas_en_faltan(lua).get("pisa") is None
+
+
+def test_la_lista_que_tienes_delante_tambien_puede_avisar():
+    lua = con_faltan()
+    abrir_casa(lua)
+
+    lista_entera(lua, [
+        (308, 250_000, "Extrano"), (311, 200_000, "Mbarval"), (318, 240_000, "Extrano"),
+    ])
+
+    grebas = grebas_en_faltan(lua)
+    assert grebas["precio"] == 250_000
+    assert grebas["pisa"] == {"ilvl": 318, "precio": 240_000}
+
+
+def test_la_lista_sin_nadie_a_308_lo_apunta():
+    lua = con_faltan()
+    abrir_casa(lua)
+
+    lista_entera(lua, [(311, 200_000, "Extrano")])
+
+    grebas = grebas_en_faltan(lua)
+    assert grebas["precio"] is False
+    assert "pisa" not in grebas
+
+
+def test_una_lista_a_medias_no_corrige_nada():
+    """Con muchas subastas la casa las trae por partes: sin todas, faltaria
+    alguna y el aviso podria desaparecer sin motivo."""
+    lua = con_faltan()
+    assert pisa_de_las_grebas(lua, 250_000, {311: 240_000}) == {"ilvl": 311, "precio": 240_000}
+    lua.execute("C_AuctionHouse.HasFullItemSearchResults = function() return false end")
+
+    lista_entera(lua, [(308, 250_000, "Extrano")])
+
+    assert grebas_en_faltan(lua)["pisa"] == {"ilvl": 311, "precio": 240_000}
 
 
 def test_la_busqueda_por_nombre_va_en_el_idioma_del_juego():

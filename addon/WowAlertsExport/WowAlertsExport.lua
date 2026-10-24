@@ -7,7 +7,7 @@
 
 local FORMAT_VERSION = 1
 -- Version del addon, para saber que codigo se esta ejecutando de verdad.
-local ADDON_VERSION = "1.42"
+local ADDON_VERSION = "1.43"
 
 WowAlertsExportDB = WowAlertsExportDB or {}
 
@@ -18,6 +18,13 @@ WowAlertsExportDB = WowAlertsExportDB or {}
 -- exportacion, que cambia cada vez que se lee aunque las subastas sean las
 -- mismas: comparando eso, el aviso saltaba siempre.
 local huellaEnDisco = nil
+
+-- En 12.1.5 desaparecio el global GetDetailedItemLevelInfo: ahora vive en
+-- C_Item. Se busca al llamar, con el viejo de recambio.
+local function nivelDeObjeto(enlace)
+    local f = (C_Item and C_Item.GetDetailedItemLevelInfo) or GetDetailedItemLevelInfo
+    return f(enlace)
+end
 
 
 -- ---------------------------------------------------------------------------
@@ -144,7 +151,7 @@ local function recogerSubastas()
             local link = info.itemLink
             local ilvl = nil
             if link then
-                ilvl = GetDetailedItemLevelInfo(link)
+                ilvl = nivelDeObjeto(link)
             end
             ilvl = ilvl or itemKey.itemLevel
 

@@ -12,6 +12,13 @@
 local R = {}
 WowAlertsReposteo = R
 
+-- En 12.1.5 desaparecio el global GetDetailedItemLevelInfo: ahora vive en
+-- C_Item. Se busca al llamar, con el viejo de recambio.
+local function nivelDeObjeto(enlace)
+    local f = (C_Item and C_Item.GetDetailedItemLevelInfo) or GetDetailedItemLevelInfo
+    return f(enlace)
+end
+
 local function vigilados()
     return WowAlertsVigilados or { objetos = {}, personajes = {}, duracion = 1 }
 end
@@ -158,6 +165,9 @@ local function quitarEntrada(auctionID)
     end
 end
 
+-- El numero de duracion que PostItem entiende por 48 h (12 h es 1, 24 h es 2).
+local DURACION_48_HORAS = 3
+
 local function claveObjeto(itemID, ilvl)
     return tostring(itemID) .. ":" .. tostring(ilvl)
 end
@@ -166,7 +176,8 @@ end
 -- de cada objeto e ilvl, por personaje. Una subasta que caduca vuelve por
 -- correo sin su precio, y sin nadie mas vendiendo ese objeto se repone a este.
 -- Se guarda en disco: la subasta caduca horas despues, con el juego cerrado o
--- en otro personaje.
+-- en otro personaje. Con `duracion` si era de 48 h, para reponerla igual (ver
+-- apuntarPrecios).
 local function preciosPuestos()
     WowAlertsExportDB = WowAlertsExportDB or {}
     WowAlertsExportDB.preciosPuestos = WowAlertsExportDB.preciosPuestos or {}
@@ -316,9 +327,10 @@ R.ILVL_FALTAN = 308
 -- Lo que se sabe del precio de lo que falta, por personaje e itemID:
 --   precio: buyout del mas barato que no es tuyo a R.ILVL_FALTAN, o false si
 --           nadie lo vende; con `en`, el time() en que se busco.
---   mejores: { [ilvl] = minimo } de los ilvl por encima, de la busqueda por
---           nombre, para avisar de cuando uno mejor te pisa (ver R.Faltan);
---           con `mejoresEn`.
+--   mejores: { [ilvl] = minimo } de los ilvl por encima, para avisar de cuando
+--           uno mejor te pisa (ver R.Faltan); con `mejoresEn`. Solo lo visto
+--           subasta a subasta: la busqueda por nombre no basta (ver
+--           comprobarMejores).
 -- Se busca una vez y vale SEGUNDOS_PRECIOS_FALTAN: abrir otra vez la casa, un
 -- /reload o cambiar de personaje no lo repite. Vive en WowAlertsExportDB y se
 -- lee cada vez, como cola(): WoW reemplaza esa tabla al cargar.
@@ -396,7 +408,7 @@ end
 -- enlace no esta (WoW no siempre lo rellena). La cola y la ventana tienen
 -- que decir el mismo ilvl para la misma subasta, asi que las dos llaman aqui.
 local function ilvlDe(info, itemKey)
-    return (info.itemLink and GetDetailedItemLevelInfo(info.itemLink)) or itemKey.itemLevel
+    return (info.itemLink and nivelDeObjeto(info.itemLink)) or itemKey.itemLevel
 end
 
 -- Agrupa por objeto e ilvl lo que hay que mirar, y de paso limpia la cola.
@@ -415,15 +427,25 @@ local function apuntarPrecios()
             and itemKey and objetos[itemKey.itemID] then
             local clave = claveObjeto(itemKey.itemID, ilvlDe(info, itemKey))
             if not baratas[clave] or info.buyoutAmount < baratas[clave].precio then
-                baratas[clave] = { itemKey = itemKey, precio = info.buyoutAmount }
+                baratas[clave] = { itemKey = itemKey, precio = info.buyoutAmount, info = info }
             end
         end
     end
 
     -- De varias copias puestas no se sabe cual caducara: se apunta la mas
     -- barata. Lo que ya no esta puesto conserva lo ultimo que se supo.
+    -- Solo una subasta de 48 h puede tener mas de 24 h por delante. Visto eso
+    -- una vez, se recuerda mientras sea la misma subasta: al caducar ya no le
+    -- queda nada.
     local precios = preciosPuestos()
     for clave, barata in pairs(baratas) do
+        local antes = precios[clave]
+        local duracion = nil
+        if (barata.info.timeLeftSeconds or 0) > 24 * 3600 then
+            duracion = DURACION_48_HORAS
+        elseif antes and antes.auctionID == barata.info.auctionID then
+            duracion = antes.duracion
+        end
         precios[clave] = {
             itemKey = {
                 itemID = barata.itemKey.itemID,
@@ -431,6 +453,8 @@ local function apuntarPrecios()
                 itemSuffix = barata.itemKey.itemSuffix,
             },
             precio = barata.precio,
+            auctionID = barata.info.auctionID,
+            duracion = duracion,
         }
     end
 end
@@ -687,6 +711,41 @@ local function mejorRival(itemKey, mia)
     return mejor
 end
 
+-- La busqueda por nombre da el minimo de cada ilvl, pero no de quien es (puede
+-- ser de un alt) ni si sigue ahi. Antes de avisar de que un ilvl mejor te pisa
+-- se busca ese ilvl subasta a subasta, del candidato mas barato al mas caro,
+-- hasta que los que quedan ya no pueden pisar: lo de verdad nunca es mas
+-- barato que el minimo de la busqueda por nombre. `candidatos` es
+-- { [ilvl] = minimo } de esa busqueda, y se va vaciando.
+local function comprobarMejores(itemID, candidatos)
+    local mio, mejores = apuntadoDe(itemID)
+    if not mio or not mejores then
+        return
+    end
+    local tope = mio + MARGEN_PISA
+    for _, precio in pairs(mejores) do
+        tope = math.min(tope, precio)
+    end
+    local siguiente = nil
+    for ilvl, precio in pairs(candidatos) do
+        if precio <= tope and (not siguiente or precio < candidatos[siguiente]) then
+            siguiente = ilvl
+        end
+    end
+    if not siguiente then
+        return
+    end
+    candidatos[siguiente] = nil
+    local clave = "comprobar:" .. itemID .. ":" .. siguiente
+    grupos[clave] = {
+        itemKey = { itemID = itemID, itemLevel = siguiente, itemSuffix = 0 },
+        comprobar = candidatos,
+        mias = {},
+        devueltas = {},
+    }
+    ordenGrupos[#ordenGrupos + 1] = clave
+end
+
 local function procesarGrupo(grupo)
     local adelantadas = 0
     for _, m in ipairs(grupo.mias) do
@@ -750,6 +809,16 @@ local function procesarGrupo(grupo)
         apuntarFalta(grupo.precioDe, "precio",
             mejorRival(grupo.itemKey, { auctionID = math.huge, buyout = math.huge }) or false, "en")
     end
+    if grupo.comprobar then
+        local itemID, ilvl = grupo.itemKey.itemID, grupo.itemKey.itemLevel
+        local rival = mejorRival(grupo.itemKey, { auctionID = math.huge, buyout = math.huge })
+        local e = preciosFaltan()[itemID]
+        if rival and e and e.mejores then
+            e.mejores[ilvl] = rival
+        end
+        traza("  %s a %s de verdad: %s", itemID, ilvl, rival and oro(rival) or "nadie")
+        comprobarMejores(itemID, grupo.comprobar)
+    end
     traza("%s: %s resultados, %s tuyas, %s adelantadas, %s devueltas",
         claveDe(grupo.itemKey), C_AuctionHouse.GetNumItemSearchResults(grupo.itemKey),
         #grupo.mias, adelantadas, #grupo.devueltas)
@@ -764,16 +833,18 @@ local function alNavegar()
         return
     end
     local itemID = grupo.itemKey.itemID
-    local mejores = {}
+    local candidatos = {}
     for _, fila in ipairs(C_AuctionHouse.GetBrowseResults() or {}) do
         local k = fila.itemKey
         if k and k.itemID == itemID and (k.itemLevel or 0) > R.ILVL_FALTAN and (fila.minPrice or 0) > 0 then
-            if not mejores[k.itemLevel] or fila.minPrice < mejores[k.itemLevel] then
-                mejores[k.itemLevel] = fila.minPrice
+            if not candidatos[k.itemLevel] or fila.minPrice < candidatos[k.itemLevel] then
+                candidatos[k.itemLevel] = fila.minPrice
             end
         end
     end
-    apuntarFalta(itemID, "mejores", mejores, "mejoresEn")
+    -- Nada comprobado todavia: lo va metiendo comprobarMejores.
+    apuntarFalta(itemID, "mejores", {}, "mejoresEn")
+    comprobarMejores(itemID, candidatos)
     traza("%s por nombre: ilvl mejores vistos", esperando)
     esperando = nil
     siguienteGrupo = siguienteGrupo + 1
@@ -789,7 +860,10 @@ local function alResponder(itemKey)
     if not esperando or not itemKey then
         return
     end
-    if claveDe(itemKey) ~= esperando then
+    -- La clave del grupo no siempre es la de su itemKey: la de comprobar un
+    -- ilvl lleva su prefijo para no juntarse con tus subastas de ese ilvl.
+    local grupo = grupos[esperando]
+    if grupo.navegar or claveDe(itemKey) ~= claveDe(grupo.itemKey) then
         traza("llega la respuesta de otra busqueda (%s); espero %s", claveDe(itemKey), esperando)
         return
     end
@@ -856,7 +930,7 @@ local function enLaBolsa(itemID, ilvl, fn)
         for hueco = 1, C_Container.GetContainerNumSlots(bolsa) do
             local info = C_Container.GetContainerItemInfo(bolsa, hueco)
             if info and info.itemID == itemID
-                and GetDetailedItemLevelInfo(info.hyperlink) == ilvl then
+                and nivelDeObjeto(info.hyperlink) == ilvl then
                 if fn(bolsa, hueco, info) then
                     return
                 end
@@ -936,7 +1010,7 @@ local function cartaPorRecoger()
                 -- El enlace del adjunto puede no estar cargado todavia: sin el
                 -- no se sabe el ilvl, y esa carta se deja para otra pulsacion.
                 local enlace = GetInboxItemLink(i, 1)
-                local ilvl = enlace and GetDetailedItemLevelInfo(enlace)
+                local ilvl = enlace and nivelDeObjeto(enlace)
                 if itemID and ilvl then
                     local clave = claveObjeto(itemID, ilvl)
 
@@ -1001,7 +1075,7 @@ local function olvidarSinCarta()
         if tieneObjeto and esDevuelta(asunto) then
             local _, itemID = GetInboxItem(i, 1)
             local enlace = GetInboxItemLink(i, 1)
-            local ilvl = enlace and GetDetailedItemLevelInfo(enlace)
+            local ilvl = enlace and nivelDeObjeto(enlace)
             if not (itemID and ilvl) then
                 return
             end
@@ -1066,7 +1140,7 @@ local function apuntarCaducadas()
         if tieneObjeto and esDevuelta(asunto) then
             local _, itemID = GetInboxItem(i, 1)
             local enlace = GetInboxItemLink(i, 1)
-            local ilvl = enlace and GetDetailedItemLevelInfo(enlace)
+            local ilvl = enlace and nivelDeObjeto(enlace)
             if itemID and ilvl and vigilados().objetos[itemID] then
                 local clave = claveObjeto(itemID, ilvl)
                 cartas[clave] = (cartas[clave] or 0) + 1
@@ -1109,6 +1183,8 @@ local function apuntarCaducadas()
                     itemID = objeto.itemID,
                     ilvl = objeto.ilvl,
                     precioAnterior = precio,
+                    -- Nadie la adelanto: vuelve con las 48 h que tenia.
+                    duracion = conocido and conocido.duracion,
                     estado = "devuelta",
                     caducada = true,
                     desde = time(),
@@ -1237,7 +1313,7 @@ local function sigueEnSuSitio(c)
         return false
     end
     local enlace = C_Item.GetItemLink(c.sitio)
-    return enlace ~= nil and GetDetailedItemLevelInfo(enlace) == c.ilvl
+    return enlace ~= nil and nivelDeObjeto(enlace) == c.ilvl
 end
 
 -- La casa de Blizzard abre su propio aviso de precio al postear, y tapa la
@@ -1298,7 +1374,7 @@ end
 
 -- Pone `d` a la venta desde `sitio` y devuelve el detalle para la traza.
 local function postear(d, sitio)
-    local duracion = vigilados().duracion
+    local duracion = d.duracion or vigilados().duracion
     if d.nueva then
         -- Lo que faltaba entra en la cola con un id inventado, como lo caducado.
         local entradas = cola()
@@ -1856,20 +1932,24 @@ function R.Subastas()
             if pedida and pedida.estado ~= "cancelar" then
                 fila.cancelada = true
             end
-            if reposteadas[info.auctionID] then
+            -- Adelantada es lo que la busqueda vio con un rival delante, y eso
+            -- siempre deja su precio. Una que cancelas con su X queda
+            -- confirmada pero sin rival, y no debe cambiar de grupo mientras
+            -- el juego responde: moveria todas las filas bajo el raton.
+            --
+            -- Va antes que lo recien repuesto: si alguien iguala lo que
+            -- acabas de poner y Escanear lo ve, tiene que salir en rojo ya, no
+            -- al cerrar y abrir la casa.
+            local e = objetos[itemKey.itemID] and buscarEntrada(info.auctionID)
+            if e and (e.estado == "cancelar" or e.estado == "cancelando")
+                and confirmadas[info.auctionID] and e.precio then
+                fila.grupo = "adelantada"
+                fila.precioRival = e.precio
+                fila.igualada = e.precio == info.buyoutAmount
+            elseif reposteadas[info.auctionID] then
                 fila.grupo = "reposteada"
             elseif objetos[itemKey.itemID] then
-                local e = buscarEntrada(info.auctionID)
-                -- Adelantada es lo que la busqueda vio con un rival delante, y eso
-                -- siempre deja su precio. Una que cancelas con su X queda
-                -- confirmada pero sin rival, y no debe cambiar de grupo mientras
-                -- el juego responde: moveria todas las filas bajo el raton.
-                if e and (e.estado == "cancelar" or e.estado == "cancelando")
-                    and confirmadas[info.auctionID] and e.precio then
-                    fila.grupo = "adelantada"
-                    fila.precioRival = e.precio
-                    fila.igualada = e.precio == info.buyoutAmount
-                elseif vistaLimpiaReciente(info.auctionID) then
+                if vistaLimpiaReciente(info.auctionID) then
                     fila.grupo = "primera"
                 else
                     fila.grupo = "sinmirar"
@@ -1969,6 +2049,43 @@ local function pisa(itemID)
         return mejor
     end
     return nil
+end
+
+-- La lista entera de un objeto de equipo (itemKey sin ilvl: la que sale al ir
+-- a venderlo) trae cada subasta con su ilvl y su dueno. Lo apuntado de lo que
+-- falta puede ser de hace casi una hora; esto es lo que hay ahora, y manda.
+-- Solo si la lista esta entera: con muchas subastas la casa la trae por
+-- partes, y sin alguna el aviso podria cambiar sin motivo.
+local function apuntarListaEntera(itemKey)
+    if not itemKey or (itemKey.itemLevel or 0) ~= 0 then
+        return
+    end
+    local itemID = itemKey.itemID
+    if not vigilados().objetos[itemID] or not esEquipo(itemID) then
+        return
+    end
+    if C_AuctionHouse.HasFullItemSearchResults and not C_AuctionHouse.HasFullItemSearchResults(itemKey) then
+        return
+    end
+    local precio, mejores = false, {}
+    for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
+        local fila = C_AuctionHouse.GetItemSearchResultInfo(itemKey, i)
+        local ilvl = fila and ilvlDe(fila, fila.itemKey or {})
+        local buyout = fila and fila.buyoutAmount or 0
+        if ilvl and buyout > 0 and not R.esNuestro(fila) then
+            if ilvl == R.ILVL_FALTAN then
+                if not precio or buyout < precio then
+                    precio = buyout
+                end
+            elseif ilvl > R.ILVL_FALTAN and (not mejores[ilvl] or buyout < mejores[ilvl]) then
+                mejores[ilvl] = buyout
+            end
+        end
+    end
+    apuntarFalta(itemID, "precio", precio, "en")
+    apuntarFalta(itemID, "mejores", mejores, "mejoresEn")
+    traza("lista entera de %s: a %s por %s", itemID, R.ILVL_FALTAN, precio and oro(precio) or "nadie")
+    R.refrescarPanel()
 end
 
 function R.Faltan()
@@ -2322,6 +2439,7 @@ frame:SetScript("OnEvent", function(_, evento, arg1, arg2)
             end)
         end
     elseif evento == "ITEM_SEARCH_RESULTS_UPDATED" then
+        apuntarListaEntera(arg1)
         alResponder(arg1)
     elseif evento == "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED" then
         alNavegar()

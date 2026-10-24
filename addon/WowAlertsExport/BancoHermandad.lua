@@ -14,6 +14,13 @@
 local B = {}
 WowAlertsBanco = B
 
+-- En 12.1.5 desaparecio el global GetDetailedItemLevelInfo: ahora vive en
+-- C_Item. Se busca al llamar, con el viejo de recambio.
+local function nivelDeObjeto(enlace)
+    local f = (C_Item and C_Item.GetDetailedItemLevelInfo) or GetDetailedItemLevelInfo
+    return f(enlace)
+end
+
 local HUECOS_POR_PESTANA = MAX_GUILDBANK_SLOTS_PER_TAB or 98
 
 local abierto = false
@@ -248,7 +255,7 @@ local function leer()
         local pestana, hueco = k:match("(%d+):(%d+)")
         pestana, hueco = tonumber(pestana), tonumber(hueco)
         local ilvl = ilvlDelHueco(clave, pestana, hueco, itemID)
-            or GetDetailedItemLevelInfo(GetGuildBankItemLink(pestana, hueco))
+            or nivelDeObjeto(GetGuildBankItemLink(pestana, hueco))
         if ilvl then
             local _, cantidad = GetGuildBankItemInfo(pestana, hueco)
             local c = itemID .. ":" .. ilvl
@@ -308,7 +315,7 @@ end
 
 local function apuntarCogido(enlace)
     local itemID = itemDe(enlace)
-    local ilvl = enlace and GetDetailedItemLevelInfo(enlace)
+    local ilvl = enlace and nivelDeObjeto(enlace)
     if abierto and itemID and ilvl then
         table.insert(cogidos, { itemID = itemID, ilvl = ilvl })
     end

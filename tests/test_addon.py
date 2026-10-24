@@ -136,6 +136,25 @@ def test_exporta_los_datos_de_la_subasta():
     ]
 
 
+def test_en_12_1_5_el_ilvl_sale_de_c_item():
+    """El cliente 12.1.5 quito el global GetDetailedItemLevelInfo."""
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    lua.globals().PERSONAJE = "Pepe"
+    lua.globals().REINO = "Sanguino"
+    lua.globals().AHORA = 1756500000
+    lua.execute(DOBLES)
+    lua.execute(
+        "GetDetailedItemLevelInfo = nil "
+        "C_Item = { GetDetailedItemLevelInfo = function() return 308 end }"
+    )
+    lua.globals().SUBASTAS = lua.table_from([subasta()])
+    lua.execute(ADDON.read_text(encoding="utf-8"))
+    recoger(lua)
+
+    entrada = volcado(lua)["personajes"]["Sanguino-Pepe"]
+    assert entrada["auctions"][0]["ilvl"] == 308
+
+
 def test_ignora_las_subastas_sin_compra_directa():
     lua = runtime(subastas=[subasta(buyout=0), subasta(auction_id=2)])
     recoger(lua)
