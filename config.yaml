@@ -41,17 +41,17 @@ items:
   - name: "Slitherscale Girdle"
     max_price_by_ilvl:
       { 308: 20000, 311: 40000,
-        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+        318: 125000, 321: 140000, 324: 150000, 328: 250000 }
 
   - name: "Slippers of the Hissing Cult"
     max_price_by_ilvl:
       { 308: 11000, 311: 30000,
-        318: 100000, 321: 120000, 324: 150000, 328: 180000 }
+        318: 100000, 321: 120000, 324: 150000, 328: 170000 }
 
   - name: "Pauldrons of the Forgotten Sacrifice"
     max_price_by_ilvl:
       { 308: 30000, 311: 50000,
-        318: 160000, 321: 200001, 324: 250000, 328: 250000 }
+        318: 160000, 321: 200001, 324: 250000, 328: 290000 }
 
   - name: "Venom Rite Mantle"
     max_price_by_ilvl:
@@ -66,7 +66,7 @@ items:
   - name: "Fanged Brute's Greatbelt"
     max_price_by_ilvl:
       { 308: 20000, 311: 40000,
-        318: 125000, 321: 140000, 324: 150000, 328: 200000 }
+        318: 125000, 321: 140000, 324: 150000, 328: 170000 }
 
   - name: "Bound Serpent's Jade Eye"
     max_price_by_ilvl:
