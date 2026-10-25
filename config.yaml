@@ -35,7 +35,7 @@ items:
 
   - name: "Temple Delver's Mystic Helm"
     max_price_by_ilvl:
-      { 308: 19000, 311: 30000,
+      { 308: 15000, 311: 30000,
         318: 80000, 321: 90000, 324: 140000, 328: 150000 }
 
   - name: "Slitherscale Girdle"
