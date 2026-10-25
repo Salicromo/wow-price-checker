@@ -421,6 +421,9 @@ def _notificador(raiz: Path) -> DiscordNotifier | None:
     return DiscordNotifier(url) if url else None
 
 
+FALLOS_ANTES_DE_AVISAR = 2
+
+
 def subir_avisando(
     ficheros: list[str],
     push: bool,
@@ -433,6 +436,10 @@ def subir_avisando(
     Una subida rota no se nota en ningun sitio: los avisos siguen llegando, solo
     que calculados con datos viejos. Asi estuvo un dia entero sin que nada lo
     dijera fuera de .state/sync.log.
+
+    Pero no al primer fallo: apagar el equipo justo al cerrar WoW corta la
+    subida a medias, y la pasada del siguiente arranque la sube sola. Lo que
+    sigue roto falla tambien en la pasada de los 15 minutos, y ahi si se avisa.
     """
     raiz = raiz or Path(__file__).resolve().parent
     errores = _Errores()
@@ -443,9 +450,21 @@ def subir_avisando(
         log.removeHandler(errores)
 
     avisado = raiz / ".state" / "fallo_de_subida_avisado"
+    seguidos = raiz / ".state" / "fallos_de_subida_seguidos"
     if resultado == EXIT_OK:
         if push:
             avisado.unlink(missing_ok=True)
+            seguidos.unlink(missing_ok=True)
+        return resultado
+
+    try:
+        fallos = int(seguidos.read_text(encoding="utf-8")) + 1
+    except (OSError, ValueError):
+        fallos = 1
+    seguidos.parent.mkdir(parents=True, exist_ok=True)
+    seguidos.write_text(str(fallos), encoding="utf-8")
+    if fallos < FALLOS_ANTES_DE_AVISAR:
+        log.info("Primer fallo de subida: aviso por Discord si vuelve a fallar.")
         return resultado
     if avisado.exists():
         return resultado
