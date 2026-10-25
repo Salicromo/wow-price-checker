@@ -73,17 +73,6 @@ items:
       { 308: 40000, 311: 50000,
         318: 105000, 321: 105000, 324: 150000, 328: 209000 }
 
-  # Los patrones no escalan: no hay ilvl que valga mas o menos, asi que llevan
-  # un solo precio con "max_price". De estos no quiero avisos de undercut, solo
-  # chollos y ventas, y eso es lo que apaga "avisar_undercut". Pero si quiero
-  # repostearlos con la tecla del addon, y para eso lleva "repostear: true":
-  # sin ella, al no avisar de undercut tampoco entrarian en el reposteo.
-  - name: "Pattern: Luxurious Silvermoon Lounge Cushion"
-    item_id: 258131
-    max_price: 40000
-    avisar_undercut: false
-    repostear: true
-
   # --------------------------------------------------------------------------
   #  Monturas caras
   # --------------------------------------------------------------------------
