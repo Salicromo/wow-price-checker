@@ -40,7 +40,7 @@ items:
 
   - name: "Slitherscale Girdle"
     max_price_by_ilvl:
-      { 308: 20000, 311: 40000,
+      { 308: 15000, 311: 40000,
         318: 125000, 321: 140000, 324: 150000, 328: 250000 }
 
   - name: "Slippers of the Hissing Cult"
