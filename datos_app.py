@@ -22,6 +22,10 @@ Publica cuatro cosas:
   historial.json  el mas barato de cada dia de tus objetos en toda la region,
                   los ultimos 30 dias. Se va llenando en .state pasada a pasada.
 
+  estudio.json    las ventas estimadas de tu equipo de ilvl 318 a 328 en cada
+                  reino, hora a hora, los ultimos 14 dias. No es para la app:
+                  es para saber en que reinos se vende (ver wowalerts/estudio.py).
+
 Va aparte de main.py a proposito. main.py es el que te manda las alertas y no
 conviene tocarlo para esto.
 """
@@ -50,6 +54,8 @@ from wowalerts.buscador import (
     nombres_que_faltan,
 )
 from wowalerts.config import ConfigError, load_config
+from wowalerts.estudio import apuntar as apuntar_estudio
+from wowalerts.estudio import construir_estudio, filas_del_reino, recortar as recortar_estudio
 from wowalerts.historial import apuntar, construir_historial, minimos_de_ahora, recortar
 from wowalerts.items import ItemResolutionError, resolve_item_ids
 from wowalerts.mercado import TIPO_MASCOTA, resumir_reino
@@ -199,13 +205,14 @@ def completar_nombres(client, ofertas, state_dir, vigilados=()) -> dict:
 
 def recoger_precios(
     client, config, reglas, roster_path, state_dir, del_catalogo=()
-) -> tuple[dict, dict, dict]:
+) -> tuple[dict, dict, dict, dict]:
     """Baja toda la region y saca de ella los ficheros de precios.
 
-    Tres usos del mismo volcado: el precio a batir en los reinos donde vendes
+    Cuatro usos del mismo volcado: el precio a batir en los reinos donde vendes
     (precios.json), el buscador de la app, que dice donde esta mas barato
-    cualquier cosa en toda la region (mercado.json.gz), y el minimo del dia de
-    tus objetos, que se suma a los de los dias anteriores (historial.json).
+    cualquier cosa en toda la region (mercado.json.gz), el minimo del dia de
+    tus objetos, que se suma a los de los dias anteriores (historial.json), y
+    las ventas de ilvl alto de cada reino (estudio.json).
     """
     roster = leer_rosters(roster_path)
     reino_por_personaje = {p.name: p.realm for p in roster}
@@ -239,6 +246,9 @@ def recoger_precios(
     fichas = fichas_de_grupos(client, todos, state_dir)
 
     vigilados = set(reglas)
+    # El estudio solo mira el equipo: lo que lleva tabla de precios por ilvl.
+    equipo = {i for i, regla in reglas.items() if not regla.sin_ilvl}
+    memoria_estudio = JsonMapCache(Path(state_dir) / "estudio_ventas.json", "estudio")
     por_reino: dict[str, tuple[dict, int]] = {}
     grupos: list[tuple[str, list[str], int]] = []
     ofertas: dict = {}
@@ -274,17 +284,28 @@ def recoger_precios(
                 ),
             )
             grupos.append((nombre, slugs, visto))
+            apuntar_estudio(
+                memoria_estudio._data,
+                realm_id,
+                filas_del_reino(snapshot.auctions, equipo, config.bonus_ilvl_map),
+                visto,
+            )
             for mio in reinos_por_id.get(realm_id, []):
                 por_reino[slugify_realm(mio)] = (minimos, visto)
             log.debug("  %s: %s producto(s) con precio", nombre, len(minimos))
 
     log.info("Reinos con dato: %s de %s", len(grupos), len(todos))
     ahora = int(datetime.now(timezone.utc).timestamp())
+    recortar_estudio(memoria_estudio._data, ahora)
+    memoria_estudio.save()
     nombres = completar_nombres(client, ofertas, state_dir, del_catalogo)
     return (
         construir_precios(por_reino, ahora),
         construir_indice(ofertas, nombres, grupos, ahora),
         actualizar_historial(ofertas, vigilados, grupos, state_dir, ahora),
+        construir_estudio(
+            memoria_estudio._data, {rid: fichas[rid][0] for rid in todos}, ahora
+        ),
     )
 
 
@@ -397,13 +418,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.solo_catalogo:
         log.info("--solo-catalogo: no bajo ningun reino.")
     else:
-        precios, indice, historial = recoger_precios(
+        precios, indice, historial, estudio = recoger_precios(
             client, config, reglas, args.personajes, args.state_dir,
             del_catalogo=catalogo["objetos"],
         )
         cambios = escribir(destino, "precios.json", precios) or cambios
         cambios = escribir_gz(destino, "mercado.json.gz", indice) or cambios
         cambios = escribir(destino, "historial.json", historial) or cambios
+        cambios = escribir(destino, "estudio.json", estudio) or cambios
 
     log.info("✅ Listo%s.", "" if cambios else " (sin cambios)")
     return EXIT_OK
