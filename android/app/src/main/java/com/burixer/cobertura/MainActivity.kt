@@ -263,13 +263,27 @@ private fun App() {
         encargos = nuevos
         Compra.guardar(context, nuevos)
     }
-    val alApuntar: (Encargo) -> Unit = { cambiarEncargos(Compra.alternar(encargos, it)) }
+    var descartados by remember { mutableStateOf(Compra.leerDescartados(context)) }
+    fun cambiarDescartados(nuevos: List<Encargo>) {
+        descartados = nuevos
+        Compra.guardarDescartados(context, nuevos)
+    }
+    fun descartar(quitados: List<Encargo>) =
+        cambiarDescartados(descartados + quitados.filterNot { Compra.contiene(descartados, it) })
+    fun recuperar(vueltos: List<Encargo>) =
+        cambiarDescartados(descartados.filterNot { Compra.contiene(vueltos, it) })
+    // Desmarcarlo a mano es como la ✕: no vuelve a entrar por faltar.
+    val alApuntar: (Encargo) -> Unit = { encargo ->
+        if (Compra.contiene(encargos, encargo)) descartar(listOf(encargo)) else recuperar(listOf(encargo))
+        cambiarEncargos(Compra.alternar(encargos, encargo))
+    }
     // Quitar del carrito (comprado o descartado) con un aviso para deshacerlo:
     // vuelve cada encargo a su sitio, con su marca de vendido.
     fun quitarConDeshacer(quitados: List<Encargo>, mensaje: String) {
         if (quitados.isEmpty()) return
         val antes = encargos
         cambiarEncargos(antes - quitados.toSet())
+        descartar(quitados)
         alcance.launch {
             avisos.currentSnackbarData?.dismiss()
             val respuesta = avisos.showSnackbar(
@@ -279,19 +293,36 @@ private fun App() {
             )
             if (respuesta == SnackbarResult.ActionPerformed) {
                 cambiarEncargos(Compra.devolver(encargos, quitados, antes))
+                recuperar(quitados)
             }
         }
     }
     BackHandler(enabled = comprando) { comprando = false }
-    // Lo que ya has puesto sale solo del carrito: cada vez que llegan subastas
-    // nuevas (al abrir y al actualizar) se cruza con lo apuntado.
+    // Lo que ya has puesto sale solo del carrito, y lo de equipo a 308 y 311
+    // que le falta a alguien entra: cada vez que llegan subastas nuevas (al
+    // abrir y al actualizar) se cruza con lo apuntado.
     LaunchedEffect(cobertura) {
         val puestos = Compra.yaPuestos(encargos, cobertura)
+        if (puestos.isNotEmpty()) cambiarEncargos(encargos - puestos.toSet())
+        // Lo comprado ya puesto deja de estar descartado: si lo vuelve a
+        // perder, vuelve a entrar.
+        val repuestos = Compra.yaPuestos(descartados, cobertura)
+        if (repuestos.isNotEmpty()) cambiarDescartados(descartados - repuestos.toSet())
+        // Sin subastas todos parecerian sin nada, y entraria todo.
+        val faltan = if (datos.subastas.isEmpty()) emptyList()
+        else Compra.porReponer(encargos, descartados, Compra.faltan(cobertura))
+        if (faltan.isNotEmpty()) cambiarEncargos(encargos + faltan)
+
         if (puestos.isNotEmpty()) {
-            cambiarEncargos(encargos - puestos.toSet())
             avisos.showSnackbar(
                 if (puestos.size == 1) "Quitado 1 del carrito: ya lo tienes puesto."
                 else "Quitados ${puestos.size} del carrito: ya los tienes puestos."
+            )
+        }
+        if (faltan.isNotEmpty()) {
+            avisos.showSnackbar(
+                if (faltan.size == 1) "Añadido 1 al carrito: no lo tienes puesto."
+                else "Añadidos ${faltan.size} al carrito: no los tienes puestos."
             )
         }
     }

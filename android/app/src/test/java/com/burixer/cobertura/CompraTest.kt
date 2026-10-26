@@ -112,6 +112,45 @@ class CompraTest {
     }
 
     @Test
+    fun `falta lo de equipo a 308 y 311 que no tiene puesto, no lo que no escala ni otros ilvl`() {
+        val grebas = Objeto(
+            id = 1, es = "Grebas", en = "Greaves", icono = null, escala = true,
+            escalones = listOf(Escalon(308, 1), Escalon(311, 1), Escalon(318, 1)), tope = null,
+        )
+        val patron = Objeto(
+            id = 2, es = "Patrón", en = "Pattern", icono = null, escala = false,
+            escalones = emptyList(), tope = 5_000,
+        )
+        val catalogo = Catalogo(listOf("Sorrow", "Azure"), listOf(grebas, patron))
+        val datos = Datos(
+            0L,
+            listOf(Subasta(1, 308, "Sorrow", 1), Subasta(1, 311, "Azure", 1)),
+            emptyMap(),
+        )
+
+        assertEquals(
+            listOf(Encargo(1, 308, "Azure"), Encargo(1, 311, "Sorrow")),
+            Compra.faltan(Calculo.cobertura(catalogo, datos)),
+        )
+    }
+
+    @Test
+    fun `lo que falta no repite lo apuntado ni devuelve lo comprado o quitado`() {
+        val apuntado = Encargo(1, 308, "Azure", porVenta = true)
+        val comprado = Encargo(1, 311, "Sorrow")
+        val nuevo = Encargo(1, 311, "Azure")
+
+        assertEquals(
+            listOf(nuevo),
+            Compra.porReponer(
+                lista = listOf(apuntado),
+                descartados = listOf(comprado),
+                faltan = listOf(apuntado.copy(porVenta = false), comprado, nuevo),
+            ),
+        )
+    }
+
+    @Test
     fun `filtrar por ilvl deja solo esos, y sin filtro todo`() {
         val pedidos = Compra.agrupar(
             listOf(grebas305Sorrow, patronSorrow, Encargo(1, 308, "Azure"))
