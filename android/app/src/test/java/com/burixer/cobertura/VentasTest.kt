@@ -77,6 +77,68 @@ class VentasTest {
     }
 
     @Test
+    fun `lo que cancelo el addon no se da por vendido`() {
+        val inicio = Ventas.Estado(mapOf(clave to 7), emptyList())
+
+        // El 305 es mas barato, pero lo cancelo el reposteo: el vendido es el 308.
+        val (estado, vendidas) = Ventas.avanzar(
+            inicio, antes = listOf(grebas305, grebas308), ahora = emptyList(),
+            ventas = mapOf(clave to 8), ahoraMs = 0L, canceladas = setOf(grebas305.id),
+        )
+
+        assertEquals(listOf(grebas308), vendidas)
+        assertTrue(estado.pendientes.isEmpty())
+    }
+
+    @Test
+    fun `con el oro de Journalator se casa la que cuadra por precio, no la mas barata`() {
+        val inicio = Ventas.Estado(mapOf(clave to 7), emptyList(), oro = mapOf(clave to 1_000L))
+
+        // Llegan 900.000.000 menos el 5 % de la casa: es el 308.
+        val (estado, vendidas) = Ventas.avanzar(
+            inicio, antes = listOf(grebas305, grebas308), ahora = emptyList(),
+            ventas = mapOf(clave to 8), ahoraMs = 0L,
+            oro = mapOf(clave to 1_000L + 855_000_000L),
+        )
+
+        assertEquals(listOf(grebas308), vendidas)
+        assertEquals(listOf(grebas305), estado.pendientes.map { it.subasta })
+        assertEquals(1_000L + 855_000_000L, estado.oro[clave])
+    }
+
+    @Test
+    fun `varias ventas a la vez, la combinacion que suma el oro que ha entrado`() {
+        val barata = subasta(30, 305, 100_000_000)
+        val media = subasta(31, 308, 200_000_000)
+        val cara = subasta(32, 311, 300_000_000)
+        val inicio = Ventas.Estado(mapOf(clave to 7), emptyList(), oro = mapOf(clave to 0L))
+
+        val (estado, vendidas) = Ventas.avanzar(
+            inicio, antes = listOf(barata, media, cara), ahora = emptyList(),
+            ventas = mapOf(clave to 9), ahoraMs = 0L,
+            oro = mapOf(clave to 380_000_000L), // (100 + 300) millones menos el 5 %
+        )
+
+        assertEquals(setOf(barata, cara), vendidas.toSet())
+        assertEquals(listOf(media), estado.pendientes.map { it.subasta })
+    }
+
+    @Test
+    fun `sin el oro de antes (estado viejo) se dan por vendidas las mas baratas`() {
+        val inicio = Ventas.Estado(mapOf(clave to 7), emptyList())
+
+        // Sin saber cuanto habia, todo el oro pareceria de esta venta.
+        val (estado, vendidas) = Ventas.avanzar(
+            inicio, antes = listOf(grebas305, grebas308), ahora = emptyList(),
+            ventas = mapOf(clave to 8), ahoraMs = 0L,
+            oro = mapOf(clave to 855_000_000L),
+        )
+
+        assertEquals(listOf(grebas305), vendidas)
+        assertEquals(855_000_000L, estado.oro[clave])
+    }
+
+    @Test
     fun `lo pendiente caduca a los tres dias, caducada o cancelada`() {
         val inicio = Ventas.Estado(mapOf(clave to 7), listOf(Ventas.Pendiente(grebas305, 0L)))
 
@@ -111,6 +173,14 @@ class VentasTest {
 
         assertEquals(7, ventas[clave])
         assertEquals(1, ventas[Ventas.clave("Azuremyst", "Yelmo")])
+    }
+
+    @Test
+    fun `el oro se lee sumando el de cada maquina`() {
+        val pc = """{"reinos":{"Darksorrow":{"Grebas":{"ventas":5,"oro":700}}}}"""
+        val deck = """{"reinos":{"Darksorrow":{"Grebas":{"ventas":2,"oro":300}}}}"""
+
+        assertEquals(1_000L, Ventas.oro(listOf(pc, deck))[clave])
     }
 
     @Test

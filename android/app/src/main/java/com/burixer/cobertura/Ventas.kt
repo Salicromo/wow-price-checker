@@ -17,26 +17,47 @@ import java.io.File
  * Journalator apunta la venta al recoger el correo, que puede ser bastante
  * despues de que la subasta desaparezca. Por eso lo desaparecido se guarda como
  * pendiente unos dias, esperando a que llegue su venta.
+ *
+ * El reposteo cancela muchisimo: el 2026-10-25 Das Konsortium llego a tener 51
+ * pendientes del collar, casi todas canceladas, y una venta de un 318 se apunto
+ * como un 308 que ya volvia a estar puesto. Por eso lo que el addon dice haber
+ * cancelado no espera venta, y la venta se casa por el oro que ha entrado.
  */
 object Ventas {
 
     /** Lo que espera una desaparecida a que llegue su venta. */
     private const val ESPERA_MS = 72L * 3_600_000L
 
+    /** Lo que llega al buzon de cada venta, despues del 5 % de la casa. */
+    private const val NETO = 0.95
+
+    /**
+     * Hasta cuantas candidatas se prueban todas las combinaciones cuando entran
+     * varias ventas a la vez. Sin canceladas suelen ser cinco o seis.
+     */
+    private const val MAX_COMBINADAS = 16
+
     private const val FICHERO = "ventas_estado.json"
 
     data class Pendiente(val subasta: Subasta, val desde: Long)
 
-    /** Por donde iba la cuenta de ventas, y lo desaparecido sin confirmar. */
-    data class Estado(val ventas: Map<String, Int>, val pendientes: List<Pendiente>)
+    /**
+     * Por donde iba la cuenta de ventas y el oro de cada reino y objeto, y lo
+     * desaparecido sin confirmar.
+     */
+    data class Estado(
+        val ventas: Map<String, Int>,
+        val pendientes: List<Pendiente>,
+        val oro: Map<String, Long> = emptyMap(),
+    )
 
     fun clave(reino: String, nombre: String) = "$reino|$nombre"
 
     /**
      * Un paso: lo que ha desaparecido entre `antes` y `ahora` pasa a pendiente,
-     * y por cada venta nueva de un reino y objeto se da por vendida una
-     * pendiente de ese reino y objeto, la mas barata primero, que es la que se
-     * vende antes.
+     * salvo lo que el addon cancelo, y cada venta nueva de un reino y objeto se
+     * casa con pendientes de ese reino y objeto: las que mas se acercan al oro
+     * que ha entrado, o sin ese dato las mas baratas, que se venden antes.
      *
      * Sin estado (la primera vez) no se confirma nada: no se sabe cuantas
      * ventas habia antes y todas parecerian nuevas.
@@ -47,6 +68,8 @@ object Ventas {
         ahora: List<Subasta>,
         ventas: Map<String, Int>,
         ahoraMs: Long,
+        oro: Map<String, Long> = emptyMap(),
+        canceladas: Set<Long> = emptySet(),
     ): Pair<Estado, List<Subasta>> {
         val siguen = ahora.map { it.id }.toSet()
         val yaPendientes = estado?.pendientes.orEmpty().map { it.subasta.id }.toSet()
@@ -56,27 +79,56 @@ object Ventas {
 
         // Las que caducaron de verdad o cancelaste nunca veran su venta.
         val pendientes = (estado?.pendientes.orEmpty() + desaparecidas)
-            .filter { ahoraMs - it.desde <= ESPERA_MS }
+            .filter { ahoraMs - it.desde <= ESPERA_MS && it.subasta.id !in canceladas }
             .toMutableList()
 
-        if (estado == null) return Estado(ventas, pendientes) to emptyList()
+        if (estado == null) return Estado(ventas, pendientes, oro) to emptyList()
 
         val vendidas = mutableListOf<Subasta>()
         for ((clave, cuantas) in ventas) {
             // Si la cuenta baja (Journalator recorta historial) no hay nada nuevo.
-            var nuevas = cuantas - (estado.ventas[clave] ?: 0)
+            val nuevas = cuantas - (estado.ventas[clave] ?: 0)
             if (nuevas <= 0) continue
-            val candidatas = pendientes
-                .filter { clave(it.subasta.reino, it.subasta.nombre) == clave }
-                .sortedBy { it.subasta.buyout }
-            for (candidata in candidatas) {
-                if (nuevas == 0) break
-                vendidas.add(candidata.subasta)
-                pendientes.remove(candidata)
-                nuevas--
+            val candidatas = pendientes.filter { clave(it.subasta.reino, it.subasta.nombre) == clave }
+            // Sin el oro de antes (un estado de antes de guardarlo) todo el oro
+            // pareceria de esta venta.
+            val antesOro = estado.oro[clave]
+            val ahoraOro = oro[clave]
+            val neto = if (antesOro != null && ahoraOro != null) ahoraOro - antesOro else 0L
+            val elegidas = elegir(candidatas, minOf(nuevas, candidatas.size), neto)
+            for (elegida in elegidas) {
+                vendidas.add(elegida.subasta)
+                pendientes.remove(elegida)
             }
         }
-        return Estado(ventas, pendientes) to vendidas
+        return Estado(ventas, pendientes, oro) to vendidas
+    }
+
+    /**
+     * Las `cuantas` candidatas que se dan por vendidas: las que mas se acercan a
+     * `neto`, o las mas baratas si no hay oro con que comparar o son demasiadas
+     * para probar todas las combinaciones.
+     */
+    private fun elegir(candidatas: List<Pendiente>, cuantas: Int, neto: Long): List<Pendiente> {
+        val baratas = candidatas.sortedBy { it.subasta.buyout }.take(cuantas)
+        if (neto <= 0 || cuantas == 0) return baratas
+        if (cuantas > 1 && candidatas.size > MAX_COMBINADAS) return baratas
+
+        var mejor = baratas
+        var error = Double.MAX_VALUE
+        fun probar(desde: Int, elegidas: List<Pendiente>) {
+            if (elegidas.size == cuantas) {
+                val diferencia = Math.abs(elegidas.sumOf { it.subasta.buyout } * NETO - neto)
+                if (diferencia < error) {
+                    error = diferencia
+                    mejor = elegidas
+                }
+                return
+            }
+            for (i in desde until candidatas.size) probar(i + 1, elegidas + candidatas[i])
+        }
+        probar(0, emptyList())
+        return mejor
     }
 
     /**
@@ -95,16 +147,21 @@ object Ventas {
     }.distinct().let { Compra.yaPuestos(it, cobertura).let { puestos -> it - puestos.toSet() } }
 
     /** Ventas por reino y objeto, sumando los ficheros de cada maquina. */
-    fun leer(ficheros: List<String>): Map<String, Int> {
-        val total = HashMap<String, Int>()
+    fun leer(ficheros: List<String>): Map<String, Int> =
+        sumar(ficheros) { it.optInt("ventas", 0).toLong() }.mapValues { it.value.toInt() }
+
+    /** El oro en cobre que te han dejado esas ventas, ya sin la parte de la casa. */
+    fun oro(ficheros: List<String>): Map<String, Long> = sumar(ficheros) { it.optLong("oro", 0L) }
+
+    private fun sumar(ficheros: List<String>, campo: (JSONObject) -> Long): Map<String, Long> {
+        val total = HashMap<String, Long>()
         for (texto in ficheros) {
             val reinos = runCatching { JSONObject(texto).optJSONObject("reinos") }.getOrNull()
                 ?: continue
             for (reino in reinos.keys()) {
                 val objetos = reinos.getJSONObject(reino)
                 for (nombre in objetos.keys()) {
-                    val n = objetos.getJSONObject(nombre).optInt("ventas", 0)
-                    total.merge(clave(reino, nombre), n, Int::plus)
+                    total.merge(clave(reino, nombre), campo(objetos.getJSONObject(nombre)), Long::plus)
                 }
             }
         }
@@ -119,6 +176,9 @@ object Ventas {
             val ventas = HashMap<String, Int>()
             val v = raiz.getJSONObject("ventas")
             for (k in v.keys()) ventas[k] = v.getInt(k)
+            // Los estados de antes de casar por oro no lo traen.
+            val oro = HashMap<String, Long>()
+            raiz.optJSONObject("oro")?.let { o -> for (k in o.keys()) oro[k] = o.getLong(k) }
             val p = raiz.getJSONArray("pendientes")
             val pendientes = (0 until p.length()).map { i ->
                 val o = p.getJSONObject(i)
@@ -135,7 +195,7 @@ object Ventas {
                     o.getLong("desde"),
                 )
             }
-            Estado(ventas, pendientes)
+            Estado(ventas, pendientes, oro)
         }.getOrNull()
     }
 
@@ -152,6 +212,7 @@ object Ventas {
         }
         val raiz = JSONObject()
             .put("ventas", JSONObject(estado.ventas as Map<*, *>))
+            .put("oro", JSONObject(estado.oro as Map<*, *>))
             .put("pendientes", pendientes)
         File(context.filesDir, FICHERO).writeText(raiz.toString())
     }

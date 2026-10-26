@@ -129,6 +129,8 @@ object Repositorio {
         runCatching {
             val todas = mutableListOf<JSONObject>()
             var exportado = 0L
+            // Lo que cancelo el reposteo: desaparece pero no es una venta.
+            val canceladas = HashSet<Long>()
             for (nombre in listar(repo, "mis_subastas", token, RAMA_SUBASTAS)) {
                 val fichero =
                     JSONObject(leer(repo, "mis_subastas/$nombre", token, RAMA_SUBASTAS))
@@ -138,6 +140,8 @@ object Repositorio {
                     exportado = maxOf(exportado, subasta.optLong("exportedAt", 0L))
                     todas.add(subasta)
                 }
+                val ids = fichero.optJSONArray("canceladas") ?: JSONArray()
+                for (i in 0 until ids.length()) canceladas.add(ids.optLong(i))
             }
             val subastas = JSONArray(Parser.soloLoUltimo(todas))
 
@@ -177,6 +181,7 @@ object Repositorio {
                 val (estado, vendidas) = Ventas.avanzar(
                     Ventas.estado(context), antes, nuevos.subastas,
                     Ventas.leer(ficheros), System.currentTimeMillis(),
+                    oro = Ventas.oro(ficheros), canceladas = canceladas,
                 )
                 Ventas.guardar(context, estado)
                 vendidas
