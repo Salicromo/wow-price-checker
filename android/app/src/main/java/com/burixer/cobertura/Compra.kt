@@ -104,6 +104,14 @@ object Compra {
             variante?.tienen?.any { it.personaje == encargo.personaje } == true
         }
 
+    /**
+     * Los encargos de personajes que ya no estan en tu lista: no los vas a
+     * usar, asi que nunca pondran nada que los saque del carrito. Sin lista
+     * (catalogo sin leer) no sale nada, o se vaciaria el carrito entero.
+     */
+    fun fueraDeLista(lista: List<Encargo>, orden: List<String>): List<Encargo> =
+        if (orden.isEmpty()) emptyList() else lista.filter { it.personaje !in orden }
+
     /** Lo de equipo a los ilvl fijos que algun personaje de tu lista no tiene puesto. */
     fun faltan(cobertura: List<Cobertura>): List<Encargo> =
         cobertura.filter { it.objeto.escala }.flatMap { c ->

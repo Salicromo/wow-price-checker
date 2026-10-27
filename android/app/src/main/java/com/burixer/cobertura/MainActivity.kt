@@ -302,6 +302,10 @@ private fun App() {
     // que le falta a alguien entra: cada vez que llegan subastas nuevas (al
     // abrir y al actualizar) se cruza con lo apuntado.
     LaunchedEffect(cobertura) {
+        // Quien sale de tu lista sale tambien del carrito, sin aviso: lo has
+        // quitado tu.
+        val fuera = Compra.fueraDeLista(encargos, catalogo.orden)
+        if (fuera.isNotEmpty()) cambiarEncargos(encargos - fuera.toSet())
         val puestos = Compra.yaPuestos(encargos, cobertura)
         if (puestos.isNotEmpty()) cambiarEncargos(encargos - puestos.toSet())
         // Lo comprado ya puesto deja de estar descartado: si lo vuelve a

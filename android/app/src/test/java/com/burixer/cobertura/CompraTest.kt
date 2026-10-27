@@ -151,6 +151,15 @@ class CompraTest {
     }
 
     @Test
+    fun `fuera de la lista son los de personajes que ya no sigues`() {
+        val lista = listOf(grebas305Sorrow, patronSorrow, grebas305Azure)
+
+        assertEquals(listOf(grebas305Azure), Compra.fueraDeLista(lista, listOf("Sorrow")))
+        // Sin lista (catalogo sin leer) no se suelta nada.
+        assertTrue(Compra.fueraDeLista(lista, emptyList()).isEmpty())
+    }
+
+    @Test
     fun `filtrar por ilvl deja solo esos, y sin filtro todo`() {
         val pedidos = Compra.agrupar(
             listOf(grebas305Sorrow, patronSorrow, Encargo(1, 308, "Azure"))
