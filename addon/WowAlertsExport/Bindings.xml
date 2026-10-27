@@ -1,8 +1,8 @@
 <Bindings>
-    <Binding name="WOWALERTS_SIGUIENTE" header="WOWALERTS">
+    <Binding name="WOWALERTS_SIGUIENTE" category="BINDING_HEADER_WOWALERTS">
         WowAlertsReposteo.Siguiente()
     </Binding>
-    <Binding name="WOWALERTS_CADUCADAS" header="WOWALERTS">
+    <Binding name="WOWALERTS_CADUCADAS" category="BINDING_HEADER_WOWALERTS">
         WowAlertsReposteo.CancelarCaducada()
     </Binding>
 </Bindings>

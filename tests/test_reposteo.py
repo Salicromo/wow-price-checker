@@ -2047,7 +2047,7 @@ def test_la_tecla_asignable_llama_a_siguiente():
     binding = bindings["WOWALERTS_SIGUIENTE"]
     assert binding.text.strip() == "WowAlertsReposteo.Siguiente()"
 
-    assert binding.get("header") == "WOWALERTS"
+    assert binding.get("category") == "BINDING_HEADER_WOWALERTS"
 
     lua = runtime()
     assert lua.globals().BINDING_NAME_WOWALERTS_SIGUIENTE
@@ -2061,7 +2061,7 @@ def test_la_tecla_de_las_que_caducan_llama_a_cancelar_caducada():
     bindings = {b.get("name"): b for b in arbol.getroot().findall("Binding")}
     binding = bindings["WOWALERTS_CADUCADAS"]
     assert binding.text.strip() == "WowAlertsReposteo.CancelarCaducada()"
-    assert binding.get("header") == "WOWALERTS"
+    assert binding.get("category") == "BINDING_HEADER_WOWALERTS"
 
     assert runtime().globals().BINDING_NAME_WOWALERTS_CADUCADAS
 
