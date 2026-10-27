@@ -32,7 +32,7 @@ local COLORES = {
 }
 local ORDEN = { "adelantada", "reposteada", "primera", "sinmirar", "novigilada" }
 
--- Lo que falta por postear a WowAlertsReposteo.ILVL_FALTAN, al final de la lista.
+-- Lo que falta por postear a WowAlertsReposteo.ILVLS_FALTAN, al final de la lista.
 local COLOR_FALTAN = { 1, 0.82, 0 }
 
 -- Cada fase del ciclo pinta la barra de su color, con el mismo codigo de
@@ -405,7 +405,7 @@ local function pintarFalta(indice, falta)
         precio = "|cff8f877asin mirar|r"
     end
     -- Lo del banco es de la ultima vez que lo abriste (ver BancoHermandad.lua).
-    local copias = WowAlertsBanco and WowAlertsBanco.Copias(falta.itemID, WowAlertsReposteo.ILVL_FALTAN)
+    local copias = WowAlertsBanco and WowAlertsBanco.Copias(falta.itemID, falta.ilvl)
     local banco
     if copias == nil then
         banco = "|cff8f877abanco sin ver|r"
@@ -415,7 +415,7 @@ local function pintarFalta(indice, falta)
         banco = "|cffff4a3dno en el banco|r"
     end
     f.detalle:SetText(precio .. "  -  " .. banco)
-    f.ilvl:SetText(tostring(WowAlertsReposteo.ILVL_FALTAN))
+    f.ilvl:SetText(tostring(falta.ilvl))
     -- Un ilvl mejor que se lleva al comprador: mas barato o hasta 10k mas.
     if falta.pisa then
         f.tiempo:SetText(("|cffff4a3d%d a %s|r"):format(falta.pisa.ilvl, precioTexto(falta.pisa.precio)))
@@ -588,15 +588,25 @@ function V.Refrescar()
             end
         end
     end
+    -- Un apartado por ilvl: Faltan ya viene ordenado por ilvl.
     local faltan = WowAlertsReposteo.Faltan and WowAlertsReposteo.Faltan() or {}
-    if #faltan > 0 then
+    local porIlvl, ilvls = {}, {}
+    for _, falta in ipairs(faltan) do
+        if not porIlvl[falta.ilvl] then
+            porIlvl[falta.ilvl] = {}
+            ilvls[#ilvls + 1] = falta.ilvl
+        end
+        table.insert(porIlvl[falta.ilvl], falta)
+    end
+    for _, ilvl in ipairs(ilvls) do
+        local lista = porIlvl[ilvl]
         indice = indice + 1
-        local t = titulo(indice, ("FALTAN A %d (%d)"):format(WowAlertsReposteo.ILVL_FALTAN, #faltan),
+        local t = titulo(indice, ("FALTAN A %d (%d)"):format(ilvl, #lista),
             COLOR_FALTAN[1], COLOR_FALTAN[2], COLOR_FALTAN[3])
         t:ClearAllPoints()
         t:SetPoint("TOPLEFT", contenido, "TOPLEFT", 0, -alto)
         alto = alto + ALTO_TITULO
-        for _, falta in ipairs(faltan) do
+        for _, falta in ipairs(lista) do
             indice = indice + 1
             pintarFalta(indice, falta)
             local f = filas[indice]

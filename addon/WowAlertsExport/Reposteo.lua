@@ -330,12 +330,13 @@ end
 local SEGUNDOS_DE_ESPERA = 10
 local consulta = 0        -- numero de la ultima busqueda enviada
 
--- El ilvl del que quieres tener puesto un ejemplar de cada objeto vigilado.
+-- Los ilvl de los que quieres tener puesto un ejemplar de cada objeto vigilado.
 -- Lo que falte sale en la ventana, con el precio al que esta en la casa.
-R.ILVL_FALTAN = 308
+R.ILVLS_FALTAN = { 308, 311 }
 
--- Lo que se sabe del precio de lo que falta, por personaje e itemID:
---   precio: buyout del mas barato que no es tuyo a R.ILVL_FALTAN, o false si
+-- Lo que se sabe del precio de lo que falta, por personaje y por objeto e ilvl
+-- (claveFalta):
+--   precio: buyout del mas barato que no es tuyo a ese ilvl, o false si
 --           nadie lo vende; con `en`, el time() en que se busco.
 --   mejores: { [ilvl] = minimo } de los ilvl por encima, para avisar de cuando
 --           uno mejor te pisa (ver R.Faltan); con `mejoresEn`. Solo lo visto
@@ -358,10 +359,14 @@ local function alDia(cuando)
     return type(cuando) == "number" and time() - cuando < SEGUNDOS_PRECIOS_FALTAN
 end
 
--- Lo apuntado de ese objeto: el precio a R.ILVL_FALTAN (nil si no esta al dia)
--- y los ilvl mejores (nil igual).
-local function apuntadoDe(itemID)
-    local e = preciosFaltan()[itemID] or {}
+local function claveFalta(itemID, ilvl)
+    return itemID .. ":" .. ilvl
+end
+
+-- Lo apuntado de ese objeto a ese ilvl: su precio (nil si no esta al dia) y
+-- los ilvl mejores (nil igual).
+local function apuntadoDe(itemID, ilvl)
+    local e = preciosFaltan()[claveFalta(itemID, ilvl)] or {}
     local precio, mejores = nil, nil
     if alDia(e.en) then
         precio = e.precio
@@ -372,7 +377,7 @@ local function apuntadoDe(itemID)
     return precio, mejores
 end
 
-local function apuntarFalta(itemID, campo, valor, campoEn)
+local function apuntarFalta(itemID, ilvl, campo, valor, campoEn)
     local tabla = preciosFaltan()
     -- De paso se tira lo viejo, para que la tabla no crezca en disco.
     for id, e in pairs(tabla) do
@@ -380,9 +385,10 @@ local function apuntarFalta(itemID, campo, valor, campoEn)
             tabla[id] = nil
         end
     end
-    tabla[itemID] = tabla[itemID] or {}
-    tabla[itemID][campo] = valor
-    tabla[itemID][campoEn] = time()
+    local clave = claveFalta(itemID, ilvl)
+    tabla[clave] = tabla[clave] or {}
+    tabla[clave][campo] = valor
+    tabla[clave][campoEn] = time()
 end
 
 -- Lo que un comprador paga de mas sin pensarlo por el ilvl mejor: lo mismo que
@@ -640,30 +646,36 @@ local function prepararBusqueda(forzar)
     end
     ordenGrupos = quedan
 
-    -- Lo que falta a R.ILVL_FALTAN, al final: solo es para ver su precio, y
+    -- Lo que falta a R.ILVLS_FALTAN, al final: solo es para ver su precio, y
     -- lo que hay que arreglar va antes. No se salta nunca, no hay subasta
     -- tuya que haya visto nadie.
     -- Lo que ya se busco hace poco no se repite (ver SEGUNDOS_PRECIOS_FALTAN).
     for _, falta in ipairs(R.Faltan()) do
-        local precio, mejores = apuntadoDe(falta.itemID)
+        local precio, mejores = apuntadoDe(falta.itemID, falta.ilvl)
         if precio == nil then
-            local grupo = anadirAGrupo({ itemID = falta.itemID, itemLevel = R.ILVL_FALTAN, itemSuffix = 0 })
+            local grupo = anadirAGrupo({ itemID = falta.itemID, itemLevel = falta.ilvl, itemSuffix = 0 })
             grupo.precioDe = falta.itemID
         end
         if mejores == nil then
             -- Y una busqueda por nombre, que trae una fila por ilvl con su minimo:
-            -- de ahi salen los ilvl mejores sin una busqueda por cada uno.
+            -- de ahi salen los ilvl mejores sin una busqueda por cada uno. Una
+            -- sola sirve para todos los ilvl que le falten (`bases`).
             -- Con el nombre en el idioma del juego: el de Vigilados.lua es el de
             -- config.yaml, en ingles, y en un cliente en espanol no casa con nada.
             local clave = "nombre:" .. falta.itemID
-            local datos = (C_Item and C_Item.GetItemInfo) or GetItemInfo
-            grupos[clave] = {
-                itemKey = { itemID = falta.itemID, itemLevel = 0, itemSuffix = 0 },
-                navegar = (datos and datos(falta.itemID)) or falta.nombre,
-                mias = {},
-                devueltas = {},
-            }
-            ordenGrupos[#ordenGrupos + 1] = clave
+            if grupos[clave] then
+                table.insert(grupos[clave].bases, falta.ilvl)
+            else
+                local datos = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+                grupos[clave] = {
+                    itemKey = { itemID = falta.itemID, itemLevel = 0, itemSuffix = 0 },
+                    navegar = (datos and datos(falta.itemID)) or falta.nombre,
+                    bases = { falta.ilvl },
+                    mias = {},
+                    devueltas = {},
+                }
+                ordenGrupos[#ordenGrupos + 1] = clave
+            end
         end
     end
 
@@ -735,9 +747,10 @@ end
 -- se busca ese ilvl subasta a subasta, del candidato mas barato al mas caro,
 -- hasta que los que quedan ya no pueden pisar: lo de verdad nunca es mas
 -- barato que el minimo de la busqueda por nombre. `candidatos` es
--- { [ilvl] = minimo } de esa busqueda, y se va vaciando.
-local function comprobarMejores(itemID, candidatos)
-    local mio, mejores = apuntadoDe(itemID)
+-- { [ilvl] = minimo } de esa busqueda por encima de `base`, el ilvl que falta,
+-- y se va vaciando.
+local function comprobarMejores(itemID, base, candidatos)
+    local mio, mejores = apuntadoDe(itemID, base)
     if not mio or not mejores then
         return
     end
@@ -755,9 +768,10 @@ local function comprobarMejores(itemID, candidatos)
         return
     end
     candidatos[siguiente] = nil
-    local clave = "comprobar:" .. itemID .. ":" .. siguiente
+    local clave = "comprobar:" .. itemID .. ":" .. base .. ":" .. siguiente
     grupos[clave] = {
         itemKey = { itemID = itemID, itemLevel = siguiente, itemSuffix = 0 },
+        base = base,
         comprobar = candidatos,
         mias = {},
         devueltas = {},
@@ -827,45 +841,53 @@ local function procesarGrupo(grupo)
     if grupo.precioDe then
         -- Un rival cualquiera va por delante de una subasta infinita: sale el
         -- mas barato que no es tuyo.
-        apuntarFalta(grupo.precioDe, "precio",
+        apuntarFalta(grupo.precioDe, grupo.itemKey.itemLevel, "precio",
             mejorRival(grupo.itemKey, { auctionID = math.huge, buyout = math.huge }) or false, "en")
     end
     if grupo.comprobar then
         local itemID, ilvl = grupo.itemKey.itemID, grupo.itemKey.itemLevel
         local rival = mejorRival(grupo.itemKey, { auctionID = math.huge, buyout = math.huge })
-        local e = preciosFaltan()[itemID]
+        local e = preciosFaltan()[claveFalta(itemID, grupo.base)]
         if rival and e and e.mejores then
             e.mejores[ilvl] = rival
         end
         traza("  %s a %s de verdad: %s", itemID, ilvl, rival and oro(rival) or "nadie")
-        comprobarMejores(itemID, grupo.comprobar)
+        comprobarMejores(itemID, grupo.base, grupo.comprobar)
     end
     traza("%s: %s resultados, %s tuyas, %s adelantadas, %s devueltas",
         claveDe(grupo.itemKey), C_AuctionHouse.GetNumItemSearchResults(grupo.itemKey),
         #grupo.mias, adelantadas, #grupo.devueltas)
 end
 
--- La respuesta a una busqueda por nombre: apunta el minimo de cada ilvl por
--- encima de R.ILVL_FALTAN. Lo que no es ese objeto (el nombre puede casar con
--- otros) no cuenta.
+-- La respuesta a una busqueda por nombre: para cada ilvl que falta, el minimo
+-- de cada ilvl por encima suyo. Lo que no es ese objeto (el nombre puede casar
+-- con otros) no cuenta.
 local function alNavegar()
     local grupo = esperando and grupos[esperando]
     if not grupo or not grupo.navegar then
         return
     end
     local itemID = grupo.itemKey.itemID
-    local candidatos = {}
+    local minimos = {}
     for _, fila in ipairs(C_AuctionHouse.GetBrowseResults() or {}) do
         local k = fila.itemKey
-        if k and k.itemID == itemID and (k.itemLevel or 0) > R.ILVL_FALTAN and (fila.minPrice or 0) > 0 then
-            if not candidatos[k.itemLevel] or fila.minPrice < candidatos[k.itemLevel] then
-                candidatos[k.itemLevel] = fila.minPrice
+        if k and k.itemID == itemID and (k.itemLevel or 0) > 0 and (fila.minPrice or 0) > 0 then
+            if not minimos[k.itemLevel] or fila.minPrice < minimos[k.itemLevel] then
+                minimos[k.itemLevel] = fila.minPrice
             end
         end
     end
-    -- Nada comprobado todavia: lo va metiendo comprobarMejores.
-    apuntarFalta(itemID, "mejores", {}, "mejoresEn")
-    comprobarMejores(itemID, candidatos)
+    for _, base in ipairs(grupo.bases) do
+        local candidatos = {}
+        for ilvl, precio in pairs(minimos) do
+            if ilvl > base then
+                candidatos[ilvl] = precio
+            end
+        end
+        -- Nada comprobado todavia: lo va metiendo comprobarMejores.
+        apuntarFalta(itemID, base, "mejores", {}, "mejoresEn")
+        comprobarMejores(itemID, base, candidatos)
+    end
     traza("%s por nombre: ilvl mejores vistos", esperando)
     esperando = nil
     siguienteGrupo = siguienteGrupo + 1
@@ -1283,7 +1305,7 @@ end
 
 -- La primera devuelta con el precio al dia (repasado en esta visita, o de hace
 -- un momento) y una copia libre y vendible en la bolsa, y donde esta esa copia.
--- Si no hay, lo que falta a R.ILVL_FALTAN con su precio ya buscado y una copia
+-- Si no hay, lo que falta a R.ILVLS_FALTAN con su precio ya buscado y una copia
 -- en la bolsa: una entrada nueva, aun fuera de la cola (`nueva`), que postear
 -- mete en ella. Va al precio del mas barato, como lo caducado.
 local function paraPostear()
@@ -1298,14 +1320,14 @@ local function paraPostear()
     end
     for _, falta in ipairs(R.Faltan()) do
         if type(falta.precio) == "number" and falta.precio > 0
-            and not hayPosteandoDe(claveObjeto(falta.itemID, R.ILVL_FALTAN)) then
-            local sitio = sitioEnBolsa(falta.itemID, R.ILVL_FALTAN)
+            and not hayPosteandoDe(claveObjeto(falta.itemID, falta.ilvl)) then
+            local sitio = sitioEnBolsa(falta.itemID, falta.ilvl)
             if sitio then
                 return {
                     nueva = true,
-                    itemKey = { itemID = falta.itemID, itemLevel = R.ILVL_FALTAN, itemSuffix = 0 },
+                    itemKey = { itemID = falta.itemID, itemLevel = falta.ilvl, itemSuffix = 0 },
                     itemID = falta.itemID,
-                    ilvl = R.ILVL_FALTAN,
+                    ilvl = falta.ilvl,
                     precio = falta.precio,
                     precioAnterior = falta.precio,
                     caducada = true,
@@ -2049,15 +2071,15 @@ local function esEquipo(itemID)
     return clase == 2 or clase == 4
 end
 
--- Los objetos vigilados de equipo de los que no tienes ninguna subasta a
--- R.ILVL_FALTAN, por nombre: { itemID, nombre, icono, precio, pisa }. `precio`
--- es el del mas barato que no es tuyo, false si nadie lo vende y nil si aun no
--- se ha buscado en esta visita. `pisa` es { ilvl, precio } del ilvl mejor que
--- se lleva al comprador, como en la app: el mas barato de los de arriba, si
--- cuesta menos que el tuyo o hasta MARGEN_PISA mas. Sin nadie vendiendo a
--- R.ILVL_FALTAN no hay con que comparar, y no sale.
-local function pisa(itemID)
-    local mio, mejores = apuntadoDe(itemID)
+-- Los objetos vigilados de equipo de los que no tienes ninguna subasta a cada
+-- uno de R.ILVLS_FALTAN, por ilvl y nombre: { itemID, ilvl, nombre, icono,
+-- precio, pisa }. `precio` es el del mas barato que no es tuyo, false si nadie
+-- lo vende y nil si aun no se ha buscado en esta visita. `pisa` es { ilvl,
+-- precio } del ilvl mejor que se lleva al comprador, como en la app: el mas
+-- barato de los de arriba, si cuesta menos que el tuyo o hasta MARGEN_PISA
+-- mas. Sin nadie vendiendo a ese ilvl no hay con que comparar, y no sale.
+local function pisa(itemID, ilvl)
+    local mio, mejores = apuntadoDe(itemID, ilvl)
     if not mio then
         return nil
     end
@@ -2089,24 +2111,26 @@ local function apuntarListaEntera(itemKey)
     if C_AuctionHouse.HasFullItemSearchResults and not C_AuctionHouse.HasFullItemSearchResults(itemKey) then
         return
     end
-    local precio, mejores = false, {}
+    local minimos = {}
     for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
         local fila = C_AuctionHouse.GetItemSearchResultInfo(itemKey, i)
         local ilvl = fila and ilvlDe(fila, fila.itemKey or {})
         local buyout = fila and fila.buyoutAmount or 0
-        if ilvl and buyout > 0 and not R.esNuestro(fila) then
-            if ilvl == R.ILVL_FALTAN then
-                if not precio or buyout < precio then
-                    precio = buyout
-                end
-            elseif ilvl > R.ILVL_FALTAN and (not mejores[ilvl] or buyout < mejores[ilvl]) then
-                mejores[ilvl] = buyout
-            end
+        if ilvl and buyout > 0 and not R.esNuestro(fila) and (not minimos[ilvl] or buyout < minimos[ilvl]) then
+            minimos[ilvl] = buyout
         end
     end
-    apuntarFalta(itemID, "precio", precio, "en")
-    apuntarFalta(itemID, "mejores", mejores, "mejoresEn")
-    traza("lista entera de %s: a %s por %s", itemID, R.ILVL_FALTAN, precio and oro(precio) or "nadie")
+    for _, base in ipairs(R.ILVLS_FALTAN) do
+        local precio, mejores = minimos[base] or false, {}
+        for ilvl, minimo in pairs(minimos) do
+            if ilvl > base then
+                mejores[ilvl] = minimo
+            end
+        end
+        apuntarFalta(itemID, base, "precio", precio, "en")
+        apuntarFalta(itemID, base, "mejores", mejores, "mejoresEn")
+        traza("lista entera de %s: a %s por %s", itemID, base, precio and oro(precio) or "nadie")
+    end
     R.refrescarPanel()
 end
 
@@ -2118,32 +2142,40 @@ function R.Faltan()
     end
     local puestos = {}
     for _, fila in ipairs(R.Subastas()) do
-        if fila.ilvl == R.ILVL_FALTAN then
-            puestos[fila.itemID] = true
+        if fila.ilvl and fila.itemID then
+            puestos[claveFalta(fila.itemID, fila.ilvl)] = true
         end
     end
     -- Lo que esta en la cola del reposteo (cancelado o caducado y por volver a
     -- poner) ya no sale entre tus subastas, pero va a volver: no falta.
     for _, e in ipairs(cola()) do
-        if e.ilvl == R.ILVL_FALTAN and e.itemID then
-            puestos[e.itemID] = true
+        if e.ilvl and e.itemID then
+            puestos[claveFalta(e.itemID, e.ilvl)] = true
         end
     end
     local lista = {}
     local instantaneo = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
-    for itemID, nombre in pairs(vigilados().objetos) do
-        if not puestos[itemID] and esEquipo(itemID) then
-            local _, _, _, _, icono = instantaneo(itemID)
-            lista[#lista + 1] = {
-                itemID = itemID,
-                nombre = nombre,
-                icono = icono,
-                precio = (apuntadoDe(itemID)),
-                pisa = pisa(itemID),
-            }
+    for _, ilvl in ipairs(R.ILVLS_FALTAN) do
+        for itemID, nombre in pairs(vigilados().objetos) do
+            if not puestos[claveFalta(itemID, ilvl)] and esEquipo(itemID) then
+                local _, _, _, _, icono = instantaneo(itemID)
+                lista[#lista + 1] = {
+                    itemID = itemID,
+                    ilvl = ilvl,
+                    nombre = nombre,
+                    icono = icono,
+                    precio = (apuntadoDe(itemID, ilvl)),
+                    pisa = pisa(itemID, ilvl),
+                }
+            end
         end
     end
-    table.sort(lista, function(a, b) return a.nombre < b.nombre end)
+    table.sort(lista, function(a, b)
+        if a.ilvl ~= b.ilvl then
+            return a.ilvl < b.ilvl
+        end
+        return a.nombre < b.nombre
+    end)
     return lista
 end
 

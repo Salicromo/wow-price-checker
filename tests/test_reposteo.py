@@ -4123,11 +4123,61 @@ def faltan(lua):
     return a_python(lua.globals().WowAlertsReposteo.Faltan())
 
 
-def test_faltan_los_de_equipo_sin_ninguno_puesto_a_308():
-    """Las grebas puestas a 311 no tapan las de 308; el patron no cuenta."""
+def faltan_a(lua, ilvl):
+    return [f for f in faltan(lua) if f["ilvl"] == ilvl]
+
+
+def test_faltan_los_de_equipo_sin_ninguno_puesto_a_308_y_a_311():
+    """Cada ilvl cuenta aparte: las grebas a 311 no tapan las de 308, ni el
+    yelmo a 308 el de 311. El patron no cuenta."""
     lua = con_faltan(subastas=[mia(10, 100_000, item_id=COIF, ilvl=308), mia(11, 100_000)])
 
-    assert [f["itemID"] for f in faltan(lua)] == [GREBAS]
+    assert [(f["itemID"], f["ilvl"]) for f in faltan(lua)] == [(GREBAS, 308), (COIF, 311)]
+
+
+TODO_A_308_Y_LAS_GREBAS_A_311 = [
+    mia(10, 100_000, item_id=COIF, ilvl=308),
+    mia(11, 100_000, item_id=COIF, ilvl=311),
+    mia(12, 100_000, ilvl=308),
+]
+
+
+def test_al_escanear_busca_tambien_lo_que_falta_a_311():
+    lua = con_faltan(subastas=TODO_A_308_Y_LAS_GREBAS_A_311)
+    en_la_casa(lua, [en_venta(1, 40_000), en_venta(2, 35_000)], ilvl=311)
+    abrir_casa(lua)
+    lua.globals().WowAlertsReposteo.Siguiente()
+
+    assert (GREBAS, 311) in responder_faltan(lua)
+    assert [(f["itemID"], f["ilvl"], f["precio"]) for f in faltan(lua)] == [(GREBAS, 311, 35_000)]
+
+
+def test_al_311_solo_lo_pisan_los_ilvl_de_encima_del_311():
+    """Un 308 baratisimo no se lleva al que busca un 311."""
+    lua = con_faltan(subastas=TODO_A_308_Y_LAS_GREBAS_A_311)
+    poner(lua, "RESULTADOS", {
+        f"{GREBAS}:311:0": [en_venta(1, 250_000)],
+        f"{GREBAS}:318:0": [en_venta(100, 240_000)],
+    })
+    en_la_navegacion(lua, {(GREBAS, 308): 1, (GREBAS, 318): 240_000})
+    abrir_casa(lua)
+    lua.globals().WowAlertsReposteo.Siguiente()
+    responder_faltan(lua)
+
+    assert faltan_a(lua, 311)[0]["pisa"] == {"ilvl": 318, "precio": 240_000}
+
+
+def test_lo_que_falta_a_311_y_esta_en_la_bolsa_se_postea_con_la_tecla():
+    lua = con_faltan(subastas=TODO_A_308_Y_LAS_GREBAS_A_311)
+    en_la_casa(lua, [en_venta(1, 30_000), en_venta(2, 25_000)], ilvl=311)
+    abrir_casa(lua)
+    pulsar(lua)
+    responder_faltan(lua)
+    en_la_bolsa(lua, 3, ilvl=311)
+
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, 25_000)
+    assert faltan(lua) == []
 
 
 def test_al_escanear_busca_lo_que_falta_a_308_y_apunta_el_mas_barato():
@@ -4151,7 +4201,9 @@ def test_si_nadie_lo_vende_el_precio_es_false():
     lua.globals().WowAlertsReposteo.Siguiente()
     responder_faltan(lua)
 
-    assert {f["itemID"]: f["precio"] for f in faltan(lua)} == {GREBAS: False, COIF: False}
+    assert {(f["itemID"], f["ilvl"]): f["precio"] for f in faltan(lua)} == {
+        (GREBAS, 308): False, (COIF, 308): False, (GREBAS, 311): False, (COIF, 311): False,
+    }
 
 
 def test_sin_buscar_todavia_no_hay_precio():
@@ -4397,12 +4449,15 @@ def test_lo_cancelado_para_repostear_no_sale_como_que_falta():
     coif = mia(20, 100_000, item_id=COIF, ilvl=308)
     lua = con_faltan(subastas=[mia(10, 100_000, ilvl=308), coif])
     en_la_casa(lua, [en_venta(999, 90_000)], ilvl=308)
-    detectar(lua)
+    abrir_casa(lua)
+    pulsar(lua)
+    # Les falta el 311: tambien hay busquedas por nombre que responder.
+    responder_faltan(lua)
     assert pulsar(lua) == "cancelar"
     lua.globals().DISPARAR("AUCTION_CANCELED", 10)
     poner(lua, "SUBASTAS", [coif])
 
-    assert faltan(lua) == []
+    assert faltan_a(lua, 308) == []
 
 
 def test_lo_que_falta_a_308_y_esta_en_la_bolsa_se_postea_con_la_tecla():
@@ -4416,7 +4471,7 @@ def test_lo_que_falta_a_308_y_esta_en_la_bolsa_se_postea_con_la_tecla():
 
     assert pulsar(lua) == "postear"
     assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, 25_000)
-    assert faltan(lua) == []
+    assert faltan_a(lua, 308) == []
     assert cola(lua) == []
 
 
