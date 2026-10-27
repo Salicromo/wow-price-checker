@@ -2043,8 +2043,8 @@ def test_la_tecla_asignable_llama_a_siguiente():
     import xml.etree.ElementTree as ET
 
     arbol = ET.parse(CARPETA / "Bindings.xml")
-    [binding] = arbol.getroot().findall("Binding")
-    assert binding.get("name") == "WOWALERTS_SIGUIENTE"
+    bindings = {b.get("name"): b for b in arbol.getroot().findall("Binding")}
+    binding = bindings["WOWALERTS_SIGUIENTE"]
     assert binding.text.strip() == "WowAlertsReposteo.Siguiente()"
 
     assert binding.get("header") == "WOWALERTS"
@@ -2052,6 +2052,18 @@ def test_la_tecla_asignable_llama_a_siguiente():
     lua = runtime()
     assert lua.globals().BINDING_NAME_WOWALERTS_SIGUIENTE
     assert lua.globals().BINDING_HEADER_WOWALERTS
+
+
+def test_la_tecla_de_las_que_caducan_llama_a_cancelar_caducada():
+    import xml.etree.ElementTree as ET
+
+    arbol = ET.parse(CARPETA / "Bindings.xml")
+    bindings = {b.get("name"): b for b in arbol.getroot().findall("Binding")}
+    binding = bindings["WOWALERTS_CADUCADAS"]
+    assert binding.text.strip() == "WowAlertsReposteo.CancelarCaducada()"
+    assert binding.get("header") == "WOWALERTS"
+
+    assert runtime().globals().BINDING_NAME_WOWALERTS_CADUCADAS
 
 
 def test_ninguna_pulsacion_llama_a_mas_de_una_funcion_protegida():
@@ -3726,6 +3738,32 @@ def test_sin_los_segundos_solo_cuentan_las_bandas_que_no_dejan_duda():
     abrir_casa(lua)
 
     assert sorted(caducadas(lua)) == [10, 12]
+
+
+def test_cancelar_caducada_cancela_solo_la_mas_urgente_por_pulsacion():
+    lua = runtime(subastas=[
+        mia(10, 100_000, segundos=7 * 3600),
+        mia(12, 120_000, segundos=40 * 3600),
+        mia(14, 130_000, segundos=3600),
+    ])
+    abrir_casa(lua)
+    antes = len(llamadas(lua))
+
+    lua.globals().WowAlertsReposteo.CancelarCaducada()
+    assert llamadas(lua)[antes:] == [("CancelAuction", 14)]
+
+    lua.globals().DISPARAR("AUCTION_CANCELED", 14)
+    lua.globals().WowAlertsReposteo.CancelarCaducada()
+    assert llamadas(lua)[antes:] == [("CancelAuction", 14), ("CancelAuction", 10)]
+
+
+def test_cancelar_caducada_sin_ninguna_no_hace_nada():
+    lua = runtime(subastas=[mia(10, 100_000, segundos=40 * 3600)])
+    abrir_casa(lua)
+    antes = len(llamadas(lua))
+
+    lua.globals().WowAlertsReposteo.CancelarCaducada()
+    assert llamadas(lua)[antes:] == []
 
 
 # ---------------------------------------------------------------------------

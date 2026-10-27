@@ -1745,6 +1745,7 @@ end
 
 BINDING_HEADER_WOWALERTS = "WoW Alerts"
 BINDING_NAME_WOWALERTS_SIGUIENTE = "Reposteo: siguiente paso"
+BINDING_NAME_WOWALERTS_CADUCADAS = "Reposteo: cancelar las de menos de 8 h"
 
 local function contar(estadoBuscado)
     local n = 0
@@ -2142,6 +2143,21 @@ function R.Caducadas()
         return a.auctionID < b.auctionID
     end)
     return filas
+end
+
+-- Cancela la mas urgente de R.Caducadas. La usan su boton de la ventana y su
+-- tecla: una pulsacion, una cancelacion, igual que la X de cada fila. Si no la
+-- cancela lo dice en el chat; si no hay ninguna, no hace nada.
+function R.CancelarCaducada()
+    local primera = R.Caducadas()[1]
+    if not primera then
+        traza("tecla de caducadas: ninguna caduca en menos de %s h", SEGUNDOS_CADUCA / 3600)
+        return
+    end
+    local motivo = R.Cancelar(primera.auctionID)
+    if motivo then
+        print("|cff33ccffReposteo:|r no la he cancelado: " .. motivo)
+    end
 end
 
 -- Mientras busca no hay nada que hacer, salvo cancelar lo ya confirmado. Lo

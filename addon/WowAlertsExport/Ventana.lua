@@ -175,16 +175,8 @@ local function crearMarco()
     -- clic vale como cancelacion, pero solo como UNA. Por eso el boton no
     -- recorre la lista: cancela la mas urgente y el numero baja al refrescar.
     botonCaducadas:SetScript("OnClick", function()
-        if not WowAlertsReposteo or not WowAlertsReposteo.Caducadas then
-            return
-        end
-        local primera = WowAlertsReposteo.Caducadas()[1]
-        if not primera then
-            return
-        end
-        local motivo = WowAlertsReposteo.Cancelar(primera.auctionID)
-        if motivo then
-            print("|cff33ccffReposteo:|r no la he cancelado: " .. motivo)
+        if WowAlertsReposteo and WowAlertsReposteo.CancelarCaducada then
+            WowAlertsReposteo.CancelarCaducada()
         end
     end)
     botonCaducadas:SetScript("OnEnter", function(self)
