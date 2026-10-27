@@ -1120,9 +1120,9 @@ def test_cerrar_la_casa_a_mitad_del_reescaneo_no_deja_el_aviso_colgado():
 # -- Cancelar --------------------------------------------------------------------
 
 
-def adelantadas(lua, *ids, precio=100_000, rival=90_000):
+def adelantadas(lua, *ids, precio=100_000, rival=90_000, segundos=None):
     """Tus subastas `ids`, todas adelantadas por un rival mas barato, ya buscadas."""
-    poner(lua, "SUBASTAS", [mia(i, precio) for i in ids])
+    poner(lua, "SUBASTAS", [mia(i, precio, segundos=segundos) for i in ids])
     en_la_casa(lua, [en_venta(999, rival)])
     detectar(lua)
 
@@ -1310,9 +1310,9 @@ def test_cancela_aunque_la_casa_este_ocupada_con_consultas():
 # -- El correo -------------------------------------------------------------------
 
 
-def devolver(lua, *ids, precio=100_000, rival=90_000):
+def devolver(lua, *ids, precio=100_000, rival=90_000, segundos=None):
     """Deja `ids` en la cola como devueltas: buscadas, canceladas y confirmadas."""
-    adelantadas(lua, *ids, precio=precio, rival=rival)
+    adelantadas(lua, *ids, precio=precio, rival=rival, segundos=segundos)
     for i in ids:
         pulsar(lua)
         lua.globals().DISPARAR("AUCTION_CANCELED", i)
@@ -1534,6 +1534,50 @@ def test_si_el_rival_ya_no_esta_se_repostea_al_precio_anterior():
 
     pulsar(lua)
     assert llamadas(lua)[-1][-1] == 100_000
+
+
+@pytest.mark.parametrize(
+    "segundos, duracion",
+    [
+        (47 * 3600, 3),     # le quedaban mas de 24 h: era de 48
+        (10 * 3600, 1),     # pudo ser de 12, 24 o 48: la de siempre
+        (None, 1),          # el juego no dio lo que le quedaba
+    ],
+)
+def test_lo_cancelado_de_48_horas_se_repone_a_48_horas(segundos, duracion):
+    lua = runtime()
+    devolver(lua, 10, segundos=segundos)
+    en_la_bolsa(lua, 3)
+    volver_a_la_casa(lua, [en_venta(999, 90_000)])
+
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua) == [("PostItem", 0, 3, duracion, 1, 90_000)]
+
+
+def test_lo_cancelado_de_48_horas_se_recuerda_aunque_luego_le_quede_poco():
+    """Vista con mas de 24 h en una visita y cancelada en otra, con menos."""
+    lua = runtime()
+    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=47 * 3600)])
+    en_la_casa(lua, [])
+    detectar(lua)
+    cerrar_casa(lua)
+    lua.globals().AHORA = lua.globals().AHORA + 30 * 3600
+    devolver(lua, 10, segundos=17 * 3600)
+    en_la_bolsa(lua, 3)
+    volver_a_la_casa(lua, [en_venta(999, 90_000)])
+
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua)[-1][3] == 3
+
+
+def test_lo_devuelto_sin_nadie_mas_vendiendolo_se_repone_a_48_horas():
+    lua = runtime()
+    devolver(lua, 10, precio=100_000, rival=90_000)
+    en_la_bolsa(lua, 3)
+    volver_a_la_casa(lua, [])
+
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua) == [("PostItem", 0, 3, 3, 1, 100_000)]
 
 
 def test_un_rival_mas_caro_que_tu_precio_anterior_no_sube_el_precio():
@@ -3797,14 +3841,14 @@ def test_la_carta_de_lo_caducado_lo_mete_en_la_cola_y_se_recoge_sola():
 
 
 @pytest.mark.parametrize(
-    "rivales, precio",
+    "rivales, precio, duracion",
     [
-        ([], 100_000),                          # nadie mas: el que tenia
-        ([en_venta(999, 90_000)], 90_000),      # mas barato ahora: baja
-        ([en_venta(999, 120_000)], 120_000),    # mas caro ahora: sube
+        ([], 100_000, 3),                          # nadie mas: el que tenia, a 48 h
+        ([en_venta(999, 90_000)], 90_000, 1),      # mas barato ahora: baja
+        ([en_venta(999, 120_000)], 120_000, 1),    # mas caro ahora: sube
     ],
 )
-def test_lo_caducado_se_repone_al_precio_de_ahora_o_al_que_tenia(rivales, precio):
+def test_lo_caducado_se_repone_al_precio_de_ahora_o_al_que_tenia(rivales, precio, duracion):
     """A diferencia de lo cancelado, que nunca sube: nadie adelanto a esta, no
     se vendio, y lo que marca el mercado es el mas barato de ahora."""
     lua = runtime()
@@ -3822,18 +3866,20 @@ def test_lo_caducado_se_repone_al_precio_de_ahora_o_al_que_tenia(rivales, precio
     assert pulsar(lua) == "buscar"
     responder_todo(lua)
     assert pulsar(lua) == "postear"
-    assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, precio)
+    assert llamadas(lua)[-1] == ("PostItem", 0, 3, duracion, 1, precio)
 
 
 def reponer_caducada(lua):
-    """Recoge la carta de lo caducado y lo vuelve a postear. Devuelve el PostItem."""
+    """Recoge la carta de lo caducado y lo vuelve a postear. Devuelve el PostItem.
+
+    Con otro vendiendolo a tu precio: sin nadie mas iria a 48 h siempre."""
     abrir_buzon(lua)
     poner(lua, "CORREO", [])
     en_la_bolsa(lua, 3)
     lua.globals().DISPARAR("MAIL_INBOX_UPDATE")
     lua.globals().BUZON_ABIERTO = False
     lua.globals().DISPARAR("MAIL_CLOSED")
-    en_la_casa(lua, [])
+    en_la_casa(lua, [en_venta(999, 100_000)])
     abrir_casa(lua)
     assert pulsar(lua) == "buscar"
     responder_todo(lua)
@@ -3879,21 +3925,6 @@ def test_otra_subasta_mas_barata_no_hereda_las_48_horas():
     lua.globals().DISPARAR("OWNED_AUCTIONS_UPDATED")
 
     assert precio_apuntado(lua).get("duracion") is None
-
-
-def test_la_de_48_horas_que_te_adelantan_se_repone_con_la_de_siempre():
-    """Solo lo que nadie adelanto vuelve a 48 h."""
-    lua = runtime()
-    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=47 * 3600)])
-    en_la_casa(lua, [en_venta(999, 90_000)])
-    detectar(lua)
-    pulsar(lua)
-    lua.globals().DISPARAR("AUCTION_CANCELED", 10)
-    poner(lua, "SUBASTAS", [])
-    en_la_bolsa(lua, 3)
-
-    assert pulsar(lua) == "postear"
-    assert llamadas(lua)[-1] == ("PostItem", 0, 3, 1, 1, 90_000)
 
 
 def test_la_misma_carta_de_caducada_no_crea_dos_entradas():

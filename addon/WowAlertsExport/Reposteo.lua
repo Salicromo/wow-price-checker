@@ -186,6 +186,16 @@ local function preciosPuestos()
     return WowAlertsExportDB.preciosPuestos[clave]
 end
 
+-- auctionID -> time() de cuando se la vio con mas de 24 h por delante, que solo
+-- puede tener una de 48 h. Lo cancelado vuelve a ponerse con la duracion que
+-- tenia, y al cancelar ya puede quedarle poco: se apunta al verla, en disco,
+-- porque eso pudo ser en otra visita. Pasadas 48 h la subasta ya no existe.
+local function de48Horas()
+    WowAlertsExportDB = WowAlertsExportDB or {}
+    WowAlertsExportDB.de48Horas = WowAlertsExportDB.de48Horas or {}
+    return WowAlertsExportDB.de48Horas
+end
+
 -- ---------------------------------------------------------------------------
 --  La busqueda
 -- ---------------------------------------------------------------------------
@@ -420,11 +430,20 @@ end
 local function apuntarPrecios()
     local objetos = vigilados().objetos
     local baratas = {}  -- claveObjeto -> { itemKey, precio } de la mas barata
+    local vistas48 = de48Horas()
+    for id, en in pairs(vistas48) do
+        if type(en) ~= "number" or time() - en > 48 * 3600 then
+            vistas48[id] = nil
+        end
+    end
     for i = 1, C_AuctionHouse.GetNumOwnedAuctions() do
         local info = C_AuctionHouse.GetOwnedAuctionInfo(i)
         local itemKey = info and info.itemKey
         if info and info.status == 0 and (info.buyoutAmount or 0) > 0
             and itemKey and objetos[itemKey.itemID] then
+            if (info.timeLeftSeconds or 0) > 24 * 3600 and not vistas48[info.auctionID] then
+                vistas48[info.auctionID] = time()
+            end
             local clave = claveObjeto(itemKey.itemID, ilvlDe(info, itemKey))
             if not baratas[clave] or info.buyoutAmount < baratas[clave].precio then
                 baratas[clave] = { itemKey = itemKey, precio = info.buyoutAmount, info = info }
@@ -790,9 +809,11 @@ local function procesarGrupo(grupo)
     -- se pone al precio del mas barato de ahora aunque sea mas alto. Solo sin
     -- nadie mas vendiendolo se queda con el que tenia, y si no se sabe cual
     -- era, se deja para ponerlo a mano.
+    -- Sin nadie mas vendiendolo no hay a quien adelantarse: va a 48 h.
     for _, e in ipairs(grupo.devueltas) do
         local tope = e.caducada and math.huge or e.precioAnterior
         local rival = mejorRival(grupo.itemKey, { auctionID = math.huge, buyout = tope })
+        e.sinRivales = mejorRival(grupo.itemKey, { auctionID = math.huge, buyout = math.huge }) == nil
         e.precio = rival or e.precioAnterior
         if e.precio then
             e.precioEn = time()
@@ -1374,7 +1395,7 @@ end
 
 -- Pone `d` a la venta desde `sitio` y devuelve el detalle para la traza.
 local function postear(d, sitio)
-    local duracion = d.duracion or vigilados().duracion
+    local duracion = d.duracion or (d.sinRivales and DURACION_48_HORAS) or vigilados().duracion
     if d.nueva then
         -- Lo que faltaba entra en la cola con un id inventado, como lo caducado.
         local entradas = cola()
@@ -2494,6 +2515,9 @@ frame:SetScript("OnEvent", function(_, evento, arg1, arg2)
         if e and (e.estado == "cancelando" or e.estado == "cancelar") then
             e.estado = "devuelta"
             e.canceladaEn = time()
+            if de48Horas()[arg1] then
+                e.duracion = DURACION_48_HORAS
+            end
             -- Tus subastas con id mayor que este se crearon despues de la
             -- busqueda que la mando cancelar: si alguna es de este objeto, se
             -- ha vuelto a poner (ver prepararBusqueda).
