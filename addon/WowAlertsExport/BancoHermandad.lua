@@ -285,11 +285,30 @@ function B.Ilvl(pestana, hueco)
     return clave and itemID and ilvlDelHueco(clave, pestana, hueco, itemID) or nil
 end
 
--- Escribe el ilvl apuntado encima de cada icono de la pestana que miras.
+-- El borde dorado de lo que hay que sacar, del color de "FALTAN A" en la
+-- ventana de la casa.
+local function resalte(boton)
+    if not boton.wowAlertsResalte then
+        local t = boton:CreateTexture(nil, "OVERLAY")
+        t:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+        t:SetBlendMode("ADD")
+        t:SetVertexColor(1, 0.82, 0)
+        t:SetPoint("CENTER")
+        t:SetSize(70, 70)
+        boton.wowAlertsResalte = t
+    end
+    return boton.wowAlertsResalte
+end
+
+-- Escribe el ilvl apuntado encima de cada icono de la pestana que miras, y
+-- resalta lo que la casa dice que le falta a este personaje y no lleva en la
+-- bolsa. Solo con el ilvl apuntado: sin el no se sabe si es el que falta.
 local function pintar()
     if not (GuildBankFrame and GuildBankFrame.Columns) then
         return
     end
+    local porSacar = WowAlertsReposteo and WowAlertsReposteo.PorSacarDelBanco
+        and WowAlertsReposteo.PorSacarDelBanco() or {}
     local pestana = GetCurrentGuildBankTab()
     for _, columna in ipairs(GuildBankFrame.Columns) do
         for _, boton in ipairs(columna.Buttons) do
@@ -299,6 +318,11 @@ local function pintar()
             end
             local ilvl = B.Ilvl(pestana, boton:GetID())
             boton.wowAlertsIlvl:SetText(ilvl and tostring(ilvl) or "")
+            local itemID = ilvl and itemDe(GetGuildBankItemLink(pestana, boton:GetID()))
+            local falta = itemID and porSacar[itemID .. ":" .. ilvl] or false
+            if falta or boton.wowAlertsResalte then
+                resalte(boton):SetShown(falta)
+            end
         end
     end
 end
@@ -342,6 +366,7 @@ local eventos = CreateFrame("Frame")
 eventos:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
 eventos:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
 eventos:RegisterEvent("GUILDBANKBAGSLOTS_CHANGED")
+eventos:RegisterEvent("BAG_UPDATE_DELAYED")
 eventos:RegisterEvent("ADDON_LOADED")
 eventos:RegisterEvent("CHAT_MSG_ADDON")
 eventos:SetScript("OnEvent", function(_, evento, tipo, ...)
@@ -366,6 +391,11 @@ eventos:SetScript("OnEvent", function(_, evento, tipo, ...)
     elseif evento == "GUILDBANKBAGSLOTS_CHANGED" then
         leer()
         pintar()
+    elseif evento == "BAG_UPDATE_DELAYED" then
+        -- Lo que ya llevas en la bolsa deja de resaltarse en el banco.
+        if abierto then
+            pintar()
+        end
     elseif evento == "ADDON_LOADED" then
         engancharVentana()
     elseif evento == "CHAT_MSG_ADDON" then

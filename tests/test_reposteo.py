@@ -4475,6 +4475,47 @@ def test_lo_que_falta_a_308_y_esta_en_la_bolsa_se_postea_con_la_tecla():
     assert cola(lua) == []
 
 
+def cerrar_casa_sin_subastas(lua):
+    """Con la casa cerrada el juego ya no da tus subastas: la lista sale vacia.
+    El 2026-10-27, guardar lo que faltaba al cerrar resalto en el banco todos
+    los 308 de Diealgoldu, que los tenia puestos."""
+    poner(lua, "SUBASTAS", [])
+    lua.globals().CASA_ABIERTA = False
+    lua.globals().DISPARAR("AUCTION_HOUSE_CLOSED")
+
+
+def escanear(lua):
+    abrir_casa(lua)
+    lua.globals().WowAlertsReposteo.Siguiente()
+    responder_faltan(lua)
+
+
+def por_sacar(lua):
+    return sorted(a_python(lua.globals().WowAlertsReposteo.PorSacarDelBanco()))
+
+
+def test_al_cerrar_la_casa_queda_lo_que_faltaba_para_sacarlo_del_banco():
+    lua = con_faltan(subastas=TODO_A_308_Y_LAS_GREBAS_A_311)
+    poner(lua, "RESULTADOS", {})
+    assert por_sacar(lua) == []  # sin pasar por la casa no se sabe nada
+
+    escanear(lua)
+    cerrar_casa_sin_subastas(lua)
+
+    assert por_sacar(lua) == [f"{GREBAS}:311"]
+
+
+def test_lo_que_ya_llevas_en_la_bolsa_no_hay_que_sacarlo():
+    lua = con_faltan(subastas=TODO_A_308_Y_LAS_GREBAS_A_311)
+    poner(lua, "RESULTADOS", {})
+    escanear(lua)
+    cerrar_casa_sin_subastas(lua)
+
+    en_la_bolsa(lua, 3, ilvl=311)
+
+    assert por_sacar(lua) == []
+
+
 def test_lo_que_falta_sin_precio_escaneado_no_se_postea():
     lua = con_faltan(subastas=[mia(10, 100_000, item_id=COIF, ilvl=308)])
     en_la_bolsa(lua, 3, ilvl=308)

@@ -2134,6 +2134,13 @@ local function apuntarListaEntera(itemKey)
     R.refrescarPanel()
 end
 
+-- Lo ultimo que falto con la casa abierta, para resaltarlo en el banco de
+-- hermandad (ver R.PorSacarDelBanco). Con la casa cerrada el juego ya no da tus
+-- subastas y todo pareceria faltar: por eso no se mira al cerrarla. Solo en
+-- memoria: al cambiar de personaje el juego recarga el addon, y el siguiente
+-- no ve resaltado lo que faltaba a este.
+local faltabaEnLaCasa = {}
+
 function R.Faltan()
     -- Solo con los personajes de personajes.yaml: los demas de la cuenta no
     -- necesitan tenerlo puesto, y asi tampoco se buscan sus precios.
@@ -2176,7 +2183,22 @@ function R.Faltan()
         end
         return a.nombre < b.nombre
     end)
+    if casaAbierta() then
+        faltabaEnLaCasa = lista
+    end
     return lista
+end
+
+-- Lo que faltaba al cerrar la casa y aun no llevas en la bolsa: lo que hay que
+-- sacar del banco, como { ["itemID:ilvl"] = true }.
+function R.PorSacarDelBanco()
+    local porSacar = {}
+    for _, falta in ipairs(faltabaEnLaCasa) do
+        if copiasEnBolsa(falta.itemID, falta.ilvl) == 0 then
+            porSacar[claveFalta(falta.itemID, falta.ilvl)] = true
+        end
+    end
+    return porSacar
 end
 
 function R.Caducadas()

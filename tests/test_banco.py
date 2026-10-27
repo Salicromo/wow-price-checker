@@ -103,7 +103,23 @@ local function boton(id)
             texto.SetText = function(self, t) self.texto = t or "" end
             return texto
         end,
+        CreateTexture = function()
+            local t = { visible = true }
+            for _, f in ipairs({ "SetTexture", "SetBlendMode", "SetVertexColor", "SetPoint", "SetSize" }) do
+                t[f] = function() end
+            end
+            t.SetShown = function(self, v) self.visible = v and true or false end
+            return t
+        end,
     }
+end
+-- Lo que la casa de subastas dice que falta y no llevas en la bolsa, como lo
+-- daria WowAlertsReposteo.PorSacarDelBanco: { ["itemID:ilvl"] = true }.
+POR_SACAR = {}
+WowAlertsReposteo = { PorSacarDelBanco = function() return POR_SACAR end }
+function RESALTADO(h)
+    local b = GuildBankFrame.Columns[math.ceil(h / 14)].Buttons[(h - 1) % 14 + 1]
+    return b.wowAlertsResalte ~= nil and b.wowAlertsResalte.visible
 end
 GuildBankFrame = { Columns = {}, Update = function() end }
 for c = 1, 7 do
@@ -362,6 +378,49 @@ def test_pinta_el_ilvl_apuntado_encima_del_icono():
 
     assert lua.globals().TEXTO_HUECO(17) == "308"
     assert lua.globals().TEXTO_HUECO(18) == ""
+
+
+def test_resalta_lo_que_falta_al_personaje_con_su_ilvl_apuntado():
+    """Las grebas 308 le faltan: se resaltan. Las de ilvl sin apuntar no, que
+    no se sabe si son 308, y el manto que no falta tampoco."""
+    lua = runtime()
+    con_bolsa(lua, {1: en_bolsa(GREBAS), 2: en_bolsa()})
+    abrir_banco(lua)
+    meter_con_clic_derecho(lua, {1: {17: del_banco(GREBAS)}})
+    meter_con_clic_derecho(lua, {1: {17: del_banco(GREBAS), 18: del_banco()}}, hueco_bolsa=2)
+    cambia(lua, {1: {17: del_banco(GREBAS), 18: del_banco(), 19: del_banco(GREBAS)}})
+    lua.execute(f'POR_SACAR = {{ ["{GREBAS}:308"] = true }}')
+    lua.globals().GuildBankFrame.Update()
+
+    resaltado = lua.globals().RESALTADO
+    assert [resaltado(17), resaltado(18), resaltado(19)] == [True, False, False]
+
+
+def test_al_coger_lo_que_falta_deja_de_resaltarse():
+    lua = runtime()
+    con_bolsa(lua, {1: en_bolsa(GREBAS)})
+    abrir_banco(lua)
+    meter_con_clic_derecho(lua, {1: {17: del_banco(GREBAS)}})
+    lua.execute(f'POR_SACAR = {{ ["{GREBAS}:308"] = true }}')
+    lua.globals().GuildBankFrame.Update()
+    assert lua.globals().RESALTADO(17)
+
+    # Otra copia ya en la bolsa: la casa ya no la pide.
+    lua.execute("POR_SACAR = {}")
+    lua.globals().DISPARAR("BAG_UPDATE_DELAYED")
+
+    assert not lua.globals().RESALTADO(17)
+
+
+def test_sin_pasar_por_la_casa_no_se_resalta_nada():
+    lua = runtime()
+    lua.execute("WowAlertsReposteo = nil")
+    con_bolsa(lua, {1: en_bolsa(GREBAS)})
+    abrir_banco(lua)
+    meter_con_clic_derecho(lua, {1: {17: del_banco(GREBAS)}})
+    lua.globals().GuildBankFrame.Update()
+
+    assert not lua.globals().RESALTADO(17)
 
 
 def test_el_ilvl_apuntado_con_un_personaje_lo_ve_otro_de_otro_reino_conectado():
