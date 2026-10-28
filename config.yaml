@@ -375,7 +375,7 @@ settings:
   #    - Las ventas se quedan pendientes y se deciden al despertar, con la hora
   #      en la que la subasta desaparecio de verdad, no con la de esa pasada.
   silencio_desde: 1
-  silencio_hasta: 9
+  silencio_hasta: 8
 
   # Zona en la que se leen esas horas. Las pasadas corren en GitHub Actions, con
   # el reloj en UTC, asi que sin esto la ventana se desplazaria sola en cada
