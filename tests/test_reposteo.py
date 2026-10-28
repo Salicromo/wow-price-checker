@@ -1536,35 +1536,48 @@ def test_si_el_rival_ya_no_esta_se_repostea_al_precio_anterior():
     assert llamadas(lua)[-1][-1] == 100_000
 
 
-@pytest.mark.parametrize(
-    "segundos, duracion",
-    [
-        (47 * 3600, 3),     # le quedaban mas de 24 h: era de 48
-        (10 * 3600, 1),     # pudo ser de 12, 24 o 48: la de siempre
-        (None, 1),          # el juego no dio lo que le quedaba
-    ],
-)
-def test_lo_cancelado_de_48_horas_se_repone_a_48_horas(segundos, duracion):
+@pytest.mark.parametrize("segundos", [47 * 3600, 10 * 3600, None])
+def test_lo_adelantado_con_rivales_se_repone_a_la_de_siempre(segundos):
+    """Aunque fuera de 48 h: con alguien mas vendiendolo, a 12 h."""
     lua = runtime()
     devolver(lua, 10, segundos=segundos)
     en_la_bolsa(lua, 3)
     volver_a_la_casa(lua, [en_venta(999, 90_000)])
 
     assert pulsar(lua) == "postear"
-    assert llamadas(lua) == [("PostItem", 0, 3, duracion, 1, 90_000)]
+    assert llamadas(lua) == [("PostItem", 0, 3, 1, 1, 90_000)]
 
 
-def test_lo_cancelado_de_48_horas_se_recuerda_aunque_luego_le_quede_poco():
+def test_lo_cancelado_a_mano_de_48_horas_se_repone_a_48_horas():
+    """Desde la X de la ventana, sin que nadie la adelantara: vuelve con la
+    duracion que tenia, aunque haya rivales."""
+    lua = runtime(subastas=[mia(10, 100_000, segundos=47 * 3600)])
+    abrir_casa(lua)
+    cancelar(lua, 10)
+    lua.globals().DISPARAR("AUCTION_CANCELED", 10)
+    cerrar_casa(lua)
+    poner(lua, "SUBASTAS", [])
+    en_la_bolsa(lua, 3)
+    volver_a_la_casa(lua, [en_venta(999, 120_000)])
+
+    assert pulsar(lua) == "postear"
+    assert llamadas(lua)[-1][3] == 3
+
+
+def test_lo_cancelado_a_mano_de_48_horas_se_recuerda_aunque_luego_le_quede_poco():
     """Vista con mas de 24 h en una visita y cancelada en otra, con menos."""
-    lua = runtime()
-    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=47 * 3600)])
-    en_la_casa(lua, [])
-    detectar(lua)
+    lua = runtime(subastas=[mia(10, 100_000, segundos=47 * 3600)])
+    abrir_casa(lua)
     cerrar_casa(lua)
     lua.globals().AHORA = lua.globals().AHORA + 30 * 3600
-    devolver(lua, 10, segundos=17 * 3600)
+    poner(lua, "SUBASTAS", [mia(10, 100_000, segundos=17 * 3600)])
+    abrir_casa(lua)
+    cancelar(lua, 10)
+    lua.globals().DISPARAR("AUCTION_CANCELED", 10)
+    cerrar_casa(lua)
+    poner(lua, "SUBASTAS", [])
     en_la_bolsa(lua, 3)
-    volver_a_la_casa(lua, [en_venta(999, 90_000)])
+    volver_a_la_casa(lua, [en_venta(999, 120_000)])
 
     assert pulsar(lua) == "postear"
     assert llamadas(lua)[-1][3] == 3

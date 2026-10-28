@@ -187,9 +187,10 @@ local function preciosPuestos()
 end
 
 -- auctionID -> time() de cuando se la vio con mas de 24 h por delante, que solo
--- puede tener una de 48 h. Lo cancelado vuelve a ponerse con la duracion que
--- tenia, y al cancelar ya puede quedarle poco: se apunta al verla, en disco,
--- porque eso pudo ser en otra visita. Pasadas 48 h la subasta ya no existe.
+-- puede tener una de 48 h. Lo cancelado sin que nadie lo adelantara vuelve a
+-- ponerse con la duracion que tenia, y al cancelar ya puede quedarle poco: se
+-- apunta al verla, en disco, porque eso pudo ser en otra visita. Pasadas 48 h
+-- la subasta ya no existe.
 local function de48Horas()
     WowAlertsExportDB = WowAlertsExportDB or {}
     WowAlertsExportDB.de48Horas = WowAlertsExportDB.de48Horas or {}
@@ -1760,6 +1761,8 @@ function R.Cancelar(auctionID)
                 precioAnterior = info.buyoutAmount,
                 estado = "cancelar",
                 desde = time(),
+                -- Fuera de la cola: nadie la ha adelantado, y conserva sus 48 h.
+                sinAdelantar = true,
             }
             local entradas = cola()
             entradas[#entradas + 1] = e
@@ -2569,7 +2572,9 @@ frame:SetScript("OnEvent", function(_, evento, arg1, arg2)
         if e and (e.estado == "cancelando" or e.estado == "cancelar") then
             e.estado = "devuelta"
             e.canceladaEn = time()
-            if de48Horas()[arg1] then
+            -- Lo adelantado no hereda las 48 h: con rivales vuelve a la de
+            -- siempre, y sin ellos postear() ya lo pone a 48 h.
+            if de48Horas()[arg1] and e.sinAdelantar then
                 e.duracion = DURACION_48_HORAS
             end
             -- Tus subastas con id mayor que este se crearon despues de la
