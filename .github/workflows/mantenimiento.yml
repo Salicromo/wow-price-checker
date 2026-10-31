@@ -1,0 +1,53 @@
+name: Mantenimiento
+
+on:
+  workflow_dispatch:
+
+jobs:
+  migrar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+
+      - name: Recuperar el estado de la cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .state
+          key: wow-alerts-state-${{ github.run_id }}
+          restore-keys: |
+            wow-alerts-state-
+
+      - name: Subir el estado al privado
+        env:
+          PRIVADO_TOKEN: ${{ secrets.PRIVADO_TOKEN }}
+        run: |
+          if [ -z "$PRIVADO_TOKEN" ]; then
+            echo "::error::Sin el secret PRIVADO_TOKEN no puedo subir nada al repositorio privado."
+            exit 1
+          fi
+          if [ -z "$(ls -A .state 2>/dev/null)" ]; then
+            echo "::error::No hay cache wow-alerts-state- que recuperar (puede haber caducado: GitHub las borra a los 7 dias sin uso)."
+            exit 1
+          fi
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          token=$(printf '%s' "$PRIVADO_TOKEN" | tr -d '[:space:]')
+          echo "::add-mask::$token"
+          export GIT_PRIVADO_TOKEN="$token" GIT_TERMINAL_PROMPT=0
+          git config --global credential.helper \
+            '!f() { echo "username=${GITHUB_REPOSITORY_OWNER}"; echo "password=${GIT_PRIVADO_TOKEN}"; }; f'
+          cd .state
+          git init -q
+          git checkout --orphan migracion
+          git add -A
+          git commit -q -m "Estado de la vigilancia: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}-privado.git"
+          for intento in 1 2 3; do
+            git push -q --force origin migracion && exit 0
+            [ "$intento" -lt 3 ] && sleep 15
+          done
+          exit 1
